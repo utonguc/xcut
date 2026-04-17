@@ -1,0 +1,21 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+## Node
+node_modules/
+.next/
+.env
+.env.local
+.env.production
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Uploads
+backend/uploads/
