@@ -74,8 +74,9 @@ export default function AppointmentsPage() {
     setLoading(true);
     let start = "", end = "";
     if (view === "week") {
-      start = `${isoDate(weekDays[0])}T00:00:00Z`;
-      end   = `${isoDate(weekDays[6])}T23:59:59Z`;
+      const ws = startOfWeek(date);
+      start = `${isoDate(ws)}T00:00:00Z`;
+      end   = `${isoDate(addDays(ws, 6))}T23:59:59Z`;
     } else {
       start = `${isoDate(date)}T00:00:00Z`;
       end   = `${isoDate(date)}T23:59:59Z`;
@@ -86,7 +87,7 @@ export default function AppointmentsPage() {
       const r = await apiFetch(`/Appointments?${params}`);
       if (r.ok) setAppts(await r.json());
     } finally { setLoading(false); }
-  }, [date, view, filterStatus, filterStylist, weekDays]);
+  }, [date, view, filterStatus, filterStylist]);
 
   useEffect(() => { load(); }, [load]);
 
