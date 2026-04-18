@@ -1,0 +1,184 @@
+/* ── xCut Design Tokens ─────────────────────────────────────────────── */
+:root {
+  --primary:      #7c3aed;
+  --primary-dark: #6d28d9;
+  --primary-light:#ede9fe;
+  --sidebar-bg:   #0f172a;
+  --sidebar-text: #94a3b8;
+  --sidebar-active:#fff;
+  --bg:           #f6f7fb;
+  --surface:      #ffffff;
+  --surface-2:    #f8fafc;
+  --border:       #eaecf0;
+  --text:         #101828;
+  --text-2:       #344054;
+  --text-3:       #64748b;
+  --danger:       #ef4444;
+  --success:      #22c55e;
+  --warning:      #f59e0b;
+  --radius:       12px;
+  --shadow:       0 1px 4px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.05);
+}
+
+/* Dark mode */
+[data-theme='dark'] {
+  --bg:       #0f172a;
+  --surface:  #1e293b;
+  --surface-2:#273549;
+  --border:   #334155;
+  --text:     #f1f5f9;
+  --text-2:   #cbd5e1;
+  --text-3:   #94a3b8;
+}
+
+/* ── Reset ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; }
+
+/* ── Scrollbar ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Utility classes ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  border: none;
+  min-height: 44px;
+  transition: filter 0.12s, opacity 0.12s;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn:active:not(:disabled) { filter: brightness(0.95); }
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-success {
+  background: var(--success);
+  color: #fff;
+}
+
+.inp {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--text);
+  min-height: 44px;
+  outline: none;
+  -webkit-appearance: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.inp:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.card {
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  background: var(--surface);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+.form-full {
+  grid-column: 1 / -1;
+}
+
+/* ── Mobile bottom nav ───────────────────────────────────────────── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(60px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: none;
+  z-index: 200;
+}
+
+@media (max-width: 900px) {
+  .bottom-nav { display: flex; }
+  .desktop-only { display: none !important; }
+}
+@media (min-width: 901px) {
+  .mobile-only { display: none !important; }
+}
+
+/* ── Animations ──────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+
+.fade-in { animation: fadeIn 0.2s ease; }
