@@ -101,7 +101,7 @@ public class SuperAdminController : ControllerBase
         };
         _db.Users.Add(adminUser);
 
-        var allModules = new[]
+        var allModules = new List<string>
         {
             "crm","appointments","stylists","services","reports",
             "finance","inventory","assets","tasks",
