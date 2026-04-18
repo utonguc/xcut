@@ -20,6 +20,14 @@ export function fmtTime(utcIso: string): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** Format a UTC ISO string as "15.01.2025" */
+export function fmtDate(utcIso: string): string {
+  const d = new Date(utcIso);
+  const offsetMs = TZ_OFFSET * 60 * 1000;
+  const local = new Date(d.getTime() + offsetMs);
+  return `${String(local.getUTCDate()).padStart(2, "0")}.${String(local.getUTCMonth() + 1).padStart(2, "0")}.${local.getUTCFullYear()}`;
+}
+
 /** Format a UTC ISO string as "15 Oca 2025" */
 export function fmtDateLong(utcIso: string): string {
   const d = new Date(utcIso);

@@ -91,7 +91,7 @@ export default function DashboardPage() {
           }
         })
       );
-      setDataMap(Object.fromEntries(entries.filter(([, v]) => v !== null)));
+      setDataMap(Object.fromEntries(entries.filter(([, v]) => v !== null)) as Record<string, WidgetData>);
     } finally {
       setLoading(false);
     }
