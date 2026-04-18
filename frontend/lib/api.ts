@@ -1,12 +1,13 @@
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api";
+  typeof window !== "undefined"
+    ? "/api"
+    : (process.env.API_BASE_URL ?? "http://localhost:8080/api");
 
 /** Convert a relative upload path (e.g. /uploads/photo.jpg) to a full URL */
 export function staticUrl(path: string | null | undefined): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
-  const base = API_BASE_URL.replace("/api", "");
-  return `${base}${path}`;
+  return path;
 }
 
 /* ── Token helpers (localStorage) ─────────────────────────────────── */
