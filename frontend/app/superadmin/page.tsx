@@ -179,29 +179,29 @@ function SuperAdminPageInner() {
             <div style={{ ...card, padding: 18, marginBottom: 14, border: "1px solid #e9d5ff", background: "#faf5ff" }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: "#6d28d9", marginBottom: 14 }}>Yeni Salon</div>
               <form onSubmit={createSalon} style={{ display: "grid", gap: 10 }}>
-                <input placeholder="Salon adı *" value={form.name} onChange={e => f("name", e.target.value)} style={inp} required />
+                <input placeholder="Salon adı *" value={form.name} onChange={e => f("name", e.target.value)} style={inp()} required />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <input placeholder="Şehir" value={form.city} onChange={e => f("city", e.target.value)} style={inp} />
-                  <input placeholder="Ülke" value={form.country} onChange={e => f("country", e.target.value)} style={inp} />
+                  <input placeholder="Şehir" value={form.city} onChange={e => f("city", e.target.value)} style={inp()} />
+                  <input placeholder="Ülke" value={form.country} onChange={e => f("country", e.target.value)} style={inp()} />
                 </div>
                 <div>
                   <input
                     placeholder="E-posta domain (ör: salon-a.com.tr)"
                     value={form.emailDomain}
                     onChange={e => f("emailDomain", e.target.value.trim().toLowerCase())}
-                    style={inp}
+                    style={inp()}
                   />
                   <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>
                     Personel bu domain'deki e-postalarıyla giriş yapar.
                   </div>
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#6d28d9", marginTop: 4 }}>Yönetici Hesabı</div>
-                <input placeholder="Ad Soyad *" value={form.adminFullName} onChange={e => f("adminFullName", e.target.value)} style={inp} required />
+                <input placeholder="Ad Soyad *" value={form.adminFullName} onChange={e => f("adminFullName", e.target.value)} style={inp()} required />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <input placeholder="Kullanıcı adı *" value={form.adminUserName} onChange={e => f("adminUserName", e.target.value)} style={inp} required />
-                  <input placeholder="E-posta" value={form.adminEmail} onChange={e => f("adminEmail", e.target.value)} style={inp} />
+                  <input placeholder="Kullanıcı adı *" value={form.adminUserName} onChange={e => f("adminUserName", e.target.value)} style={inp()} required />
+                  <input placeholder="E-posta" value={form.adminEmail} onChange={e => f("adminEmail", e.target.value)} style={inp()} />
                 </div>
-                <input type="password" placeholder="Şifre * (min 6)" value={form.adminPassword} onChange={e => f("adminPassword", e.target.value)} style={inp} required minLength={6} />
+                <input type="password" placeholder="Şifre * (min 6)" value={form.adminPassword} onChange={e => f("adminPassword", e.target.value)} style={inp()} required minLength={6} />
 
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#6d28d9" }}>Başlangıç Modülleri</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -368,20 +368,20 @@ function AnnouncementsTab() {
           {error && <div style={{ background: "#fef3f2", color: "#b42318", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 }}>{error}</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
-              placeholder="Başlık *" style={inp} />
+              placeholder="Başlık *" style={inp()} />
             <textarea value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
               placeholder="Duyuru metni" rows={4}
               style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #e4e7ec", fontSize: 13, resize: "vertical" }} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#344054", display: "block", marginBottom: 4 }}>Tür</label>
-                <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))} style={inp}>
+                <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))} style={inp()}>
                   {TYPE_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#344054", display: "block", marginBottom: 4 }}>Son Tarih</label>
-                <input type="date" value={form.expiresAtUtc} onChange={e => setForm(p => ({ ...p, expiresAtUtc: e.target.value }))} style={inp} />
+                <input type="date" value={form.expiresAtUtc} onChange={e => setForm(p => ({ ...p, expiresAtUtc: e.target.value }))} style={inp()} />
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
@@ -693,21 +693,21 @@ function GeneralTab({ salon, onUpdated, onMessage }: {
       <div style={{ display: "grid", gap: 12 }}>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>Salon Adı *</label>
-          <input value={name} onChange={e => setName(e.target.value)} style={inp} />
+          <input value={name} onChange={e => setName(e.target.value)} style={inp()} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>Şehir</label>
-            <input value={city} onChange={e => setCity(e.target.value)} style={inp} />
+            <input value={city} onChange={e => setCity(e.target.value)} style={inp()} />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>Ülke</label>
-            <input value={country} onChange={e => setCountry(e.target.value)} style={inp} />
+            <input value={country} onChange={e => setCountry(e.target.value)} style={inp()} />
           </div>
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>E-posta Domain</label>
-          <input value={emailDomain} onChange={e => setEmailDomain(e.target.value.trim().toLowerCase())} placeholder="ör: salon-a.com.tr" style={inp} />
+          <input value={emailDomain} onChange={e => setEmailDomain(e.target.value.trim().toLowerCase())} placeholder="ör: salon-a.com.tr" style={inp()} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2, #344054)" }}>Salon Durumu</label>
