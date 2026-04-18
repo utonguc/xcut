@@ -16,12 +16,14 @@ import {
 
 /* ── Types ───────────────────────────────────────────────────────── */
 type Me = {
-  id: string;
-  firstName: string;
-  lastName: string;
+  userId: string;
+  salonId: string;
+  salonName: string;
+  userName: string;
+  fullName: string;
   email: string;
   role: string;
-  photoUrl?: string;
+  profilePhotoUrl?: string;
 };
 
 type Org = {
@@ -257,11 +259,11 @@ export default function AppShell({ title, description, actions, children }: Prop
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontWeight: 800, fontSize: 13,
             }}>
-              {me.firstName[0]}{me.lastName[0]}
+              {me.fullName[0] ?? "?"}
             </div>
             <div style={{ flex: 1, overflow: "hidden" }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {me.firstName} {me.lastName}
+                {me.fullName}
               </div>
               <div style={{ fontSize: 11, color: "#475569" }}>{me.role}</div>
             </div>
@@ -468,9 +470,9 @@ export default function AppShell({ title, description, actions, children }: Prop
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: "#fff", fontWeight: 800, fontSize: 11,
               }}>
-                {me.firstName[0]}{me.lastName[0]}
+                {me.fullName[0] ?? "?"}
               </div>
-              {!isMobile && <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2,#344054)" }}>{me.firstName}</span>}
+              {!isMobile && <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2,#344054)" }}>{me.fullName.split(" ")[0]}</span>}
             </div>
           )}
         </header>
