@@ -73,7 +73,7 @@ public class AppointmentReminderWorker : BackgroundService
             {
                 try
                 {
-                    await whatsapp.SendAsync(appt.SalonId, customer.Phone, msg, customer.Id);
+                    await whatsapp.SendTextAsync(appt.SalonId, customer.Phone, msg, customer.Id);
                 }
                 catch (Exception ex)
                 {

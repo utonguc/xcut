@@ -40,11 +40,8 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<AuditInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
-    options
-        .UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
-        .AddInterceptors(sp.GetRequiredService<AuditInterceptor>()));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));

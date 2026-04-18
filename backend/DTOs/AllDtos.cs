@@ -326,6 +326,9 @@ public class CreateSalonRequest
     public string  AdminUserName { get; set; } = string.Empty;
     public string  AdminEmail    { get; set; } = string.Empty;
     public string  AdminPassword { get; set; } = string.Empty;
+    public string? Plan          { get; set; }
+    public int?    TrialDays     { get; set; }
+    public List<string>? Modules { get; set; }
     public List<string> InitialModules { get; set; } = new();
 }
 
@@ -572,6 +575,7 @@ public class ReviewAppointmentRequestDto
 public class SalonWebsiteResponse
 {
     public Guid    Id              { get; set; }
+    public Guid    SalonId         { get; set; }
     public string  Slug            { get; set; } = string.Empty;
     public string? CustomDomain    { get; set; }
     public bool    IsPublished     { get; set; }

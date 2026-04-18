@@ -46,7 +46,7 @@ public class ReportEmailWorker : BackgroundService
                 foreach (var to in recipients)
                     await email.SendAsync(to, $"[xCut] {report.Name}", $"Zamanlanmış rapor: {report.Name}");
 
-                report.LastRunAtUtc = DateTime.UtcNow;
+                report.LastSentAtUtc = DateTime.UtcNow;
                 report.NextRunAtUtc = report.Frequency switch
                 {
                     "daily"   => DateTime.UtcNow.AddDays(1),
