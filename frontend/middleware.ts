@@ -21,6 +21,8 @@ const APP_PATHS = new Set([
   "/website",
   "/salon-bul",
   "/ayarlar",
+  "/kasa",
+  "/demo",
   "/superadmin",
   "/site",
   "/portal",
