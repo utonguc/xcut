@@ -21,6 +21,10 @@ public class Stylist
     public int? ExperienceYears { get; set; }
     public string? Certificates { get; set; }      // virgülle ayrılmış liste
 
+    // ── Kasa / Pay ────────────────────────────────────────────────────────────
+    /// <summary>Stilistin satışlarından aldığı pay yüzdesi (0-100). Ör: 60 → %60.</summary>
+    public decimal CommissionRate { get; set; } = 0;
+
     // ── Meta ──────────────────────────────────────────────────────────────────
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();

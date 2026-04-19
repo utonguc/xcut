@@ -320,5 +320,54 @@ public static class SchemaUpdater
         );
         CREATE INDEX IF NOT EXISTS ix_ticketreplies_ticket ON "SupportTicketReplies"("TicketId");
 
+        -- TABLE: PosTransactions
+        CREATE TABLE IF NOT EXISTS "PosTransactions" (
+            "Id"             uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"        uuid         NOT NULL,
+            "StylistId"      uuid,
+            "CustomerName"   text,
+            "Subtotal"       numeric(18,2) NOT NULL DEFAULT 0,
+            "DiscountType"   varchar(20)  NOT NULL DEFAULT 'none',
+            "DiscountValue"  numeric(18,2) NOT NULL DEFAULT 0,
+            "DiscountAmount" numeric(18,2) NOT NULL DEFAULT 0,
+            "Total"          numeric(18,2) NOT NULL DEFAULT 0,
+            "PaymentMethod"  varchar(20)  NOT NULL DEFAULT 'cash',
+            "CashAmount"     numeric(18,2) NOT NULL DEFAULT 0,
+            "CardAmount"     numeric(18,2) NOT NULL DEFAULT 0,
+            "Notes"          text,
+            "Status"         varchar(20)  NOT NULL DEFAULT 'completed',
+            "CreatedAtUtc"   timestamptz  NOT NULL DEFAULT now(),
+            CONSTRAINT fk_postx_stylist
+                FOREIGN KEY ("StylistId") REFERENCES "Stylists"("Id") ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_postx_salon      ON "PosTransactions"("SalonId");
+        CREATE INDEX IF NOT EXISTS ix_postx_stylist    ON "PosTransactions"("StylistId");
+        CREATE INDEX IF NOT EXISTS ix_postx_salon_date ON "PosTransactions"("SalonId", "CreatedAtUtc" DESC);
+
+        -- TABLE: PosTransactionItems
+        CREATE TABLE IF NOT EXISTS "PosTransactionItems" (
+            "Id"            uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "TransactionId" uuid         NOT NULL,
+            "ServiceId"     uuid,
+            "Name"          text         NOT NULL,
+            "UnitPrice"     numeric(18,2) NOT NULL DEFAULT 0,
+            "Quantity"      integer      NOT NULL DEFAULT 1,
+            "LineTotal"     numeric(18,2) NOT NULL DEFAULT 0,
+            CONSTRAINT fk_postxitem_tx
+                FOREIGN KEY ("TransactionId") REFERENCES "PosTransactions"("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_postxitem_tx ON "PosTransactionItems"("TransactionId");
+
+        -- CommissionRate on Stylists
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'Stylists' AND column_name = 'CommissionRate'
+            ) THEN
+                ALTER TABLE "Stylists" ADD COLUMN "CommissionRate" numeric(5,2) NOT NULL DEFAULT 0;
+            END IF;
+        END $$;
+
         """;
 }

@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Calendar, CalendarDays, Users, Scissors,
   ShoppingCart, CheckSquare, DollarSign, Globe, MapPin,
   Settings, Bell, Search, Menu, X, LogOut, ChevronLeft,
-  ChevronRight, Sparkles, HeadphonesIcon,
+  ChevronRight, Sparkles, HeadphonesIcon, CreditCard,
 } from "lucide-react";
 
 /* ── Types ───────────────────────────────────────────────────────── */
@@ -51,6 +51,7 @@ const ALL_NAV = [
   { href: "/services",     label: "Hizmetler",    Icon: Sparkles,        module: "services" },
   { href: "/stock",        label: "Stok",         Icon: ShoppingCart,    module: "stock" },
   { href: "/tasks",        label: "Görevler",     Icon: CheckSquare,     module: "tasks" },
+  { href: "/kasa",         label: "Kasa",         Icon: CreditCard,      module: "finance" },
   { href: "/finance",      label: "Finans",       Icon: DollarSign,      module: "finance" },
   { href: "/website",      label: "Web Sitesi",   Icon: Globe,           module: "website" },
   { href: "/salon-bul",    label: "Salon Bul",    Icon: MapPin,          module: "core" },

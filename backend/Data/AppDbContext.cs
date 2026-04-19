@@ -43,6 +43,8 @@ public class AppDbContext : DbContext
     public DbSet<PlatformAnnouncementRead> PlatformAnnouncementReads => Set<PlatformAnnouncementRead>();
     public DbSet<SupportTicket>    SupportTickets    => Set<SupportTicket>();
     public DbSet<SupportTicketReply> SupportTicketReplies => Set<SupportTicketReply>();
+    public DbSet<PosTransaction>     PosTransactions     => Set<PosTransaction>();
+    public DbSet<PosTransactionItem> PosTransactionItems => Set<PosTransactionItem>();
 
     protected override void OnModelCreating(ModelBuilder m)
     {

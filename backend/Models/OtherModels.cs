@@ -485,6 +485,41 @@ public class Asset
     public DateTime CreatedAtUtc     { get; set; } = DateTime.UtcNow;
 }
 
+// ── POS / Kasa ────────────────────────────────────────────────────────────────
+
+public class PosTransaction
+{
+    public Guid    Id             { get; set; } = Guid.NewGuid();
+    public Guid    SalonId        { get; set; }
+    public Guid?   StylistId      { get; set; }
+    public Stylist? Stylist       { get; set; }
+    public string? CustomerName   { get; set; }
+    public decimal Subtotal       { get; set; }
+    public string  DiscountType   { get; set; } = "none"; // none | percent | fixed
+    public decimal DiscountValue  { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal Total          { get; set; }
+    public string  PaymentMethod  { get; set; } = "cash"; // cash | card | mixed
+    public decimal CashAmount     { get; set; }
+    public decimal CardAmount     { get; set; }
+    public string? Notes          { get; set; }
+    public string  Status         { get; set; } = "completed"; // completed | cancelled
+    public DateTime CreatedAtUtc  { get; set; } = DateTime.UtcNow;
+    public ICollection<PosTransactionItem> Items { get; set; } = new List<PosTransactionItem>();
+}
+
+public class PosTransactionItem
+{
+    public Guid    Id            { get; set; } = Guid.NewGuid();
+    public Guid    TransactionId { get; set; }
+    public PosTransaction? Transaction { get; set; }
+    public Guid?   ServiceId    { get; set; }
+    public string  Name         { get; set; } = string.Empty;
+    public decimal UnitPrice    { get; set; }
+    public int     Quantity     { get; set; } = 1;
+    public decimal LineTotal    { get; set; }
+}
+
 // ── Scheduled Report ──────────────────────────────────────────────────────────
 
 public class ScheduledReport
