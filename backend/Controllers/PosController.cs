@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +19,7 @@ public class PosController : ControllerBase
 
     private async Task<Guid?> GetSalonIdAsync()
     {
-        var sub = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
         if (!Guid.TryParse(sub, out var userId)) return null;
         return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
     }
