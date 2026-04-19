@@ -974,3 +974,8 @@ public class PagedResult<T>
     public int     PageSize { get; set; }
     public int     TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)Total / PageSize) : 0;
 }
+
+public class ImpersonateRequest
+{
+    public Guid? UserId { get; set; }
+}

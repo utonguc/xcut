@@ -9,10 +9,11 @@ import { useTheme } from "@/hooks/useTheme";
 import GlobalSearch from "@/components/GlobalSearch";
 import {
   LayoutDashboard, Calendar, CalendarDays, Users, Scissors,
-  ShoppingCart, CheckSquare, DollarSign, Globe, MapPin,
+  ShoppingCart, CheckSquare, DollarSign, Globe,
   Settings, Bell, Search, Menu, X, LogOut, ChevronLeft,
-  ChevronRight, Sparkles, HeadphonesIcon, CreditCard,
+  ChevronRight, Sparkles, HeadphonesIcon, CreditCard, ShieldCheck,
 } from "lucide-react";
+import { exitImpersonation, getImpersonatingSalon } from "@/lib/api";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 type Me = {
@@ -54,7 +55,6 @@ const ALL_NAV = [
   { href: "/kasa",         label: "Kasa",         Icon: CreditCard,      module: "finance" },
   { href: "/finance",      label: "Finans",       Icon: DollarSign,      module: "finance" },
   { href: "/website",      label: "Web Sitesi",   Icon: Globe,           module: "website" },
-  { href: "/salon-bul",    label: "Salon Bul",    Icon: MapPin,          module: "core" },
   { href: "/ayarlar",      label: "Ayarlar",      Icon: Settings,        module: "core" },
 ];
 
@@ -84,17 +84,18 @@ export default function AppShell({ title, description, actions, children }: Prop
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
 
-  const [me,           setMe]           = useState<Me | null>(null);
-  const [org,          setOrg]          = useState<Org | null>(null);
-  const [sidebarOpen,  setSidebarOpen]  = useState(false);   // mobile drawer
-  const [collapsed,    setCollapsed]    = useState(false);   // desktop collapse
-  const [searchOpen,   setSearchOpen]   = useState(false);
-  const [notifOpen,    setNotifOpen]    = useState(false);
-  const [notifs,       setNotifs]       = useState<Notification[]>([]);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [supportOpen,  setSupportOpen]  = useState(false);
-  const [trialDays,    setTrialDays]    = useState<number | null>(null);
-  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const [me,               setMe]               = useState<Me | null>(null);
+  const [org,              setOrg]              = useState<Org | null>(null);
+  const [sidebarOpen,      setSidebarOpen]      = useState(false);   // mobile drawer
+  const [collapsed,        setCollapsed]        = useState(false);   // desktop collapse
+  const [searchOpen,       setSearchOpen]       = useState(false);
+  const [notifOpen,        setNotifOpen]        = useState(false);
+  const [notifs,           setNotifs]           = useState<Notification[]>([]);
+  const [pendingCount,     setPendingCount]     = useState(0);
+  const [supportOpen,      setSupportOpen]      = useState(false);
+  const [trialDays,        setTrialDays]        = useState<number | null>(null);
+  const [announcement,     setAnnouncement]     = useState<string | null>(null);
+  const [impersonatingSalon, setImpersonatingSalon] = useState<string | null>(null);
 
   // Load user data
   useEffect(() => {
@@ -112,6 +113,7 @@ export default function AppShell({ title, description, actions, children }: Prop
     });
     const stored = localStorage.getItem("trialDaysLeft");
     if (stored) setTrialDays(Number(stored));
+    setImpersonatingSalon(getImpersonatingSalon());
   }, []);
 
   // Ctrl+K → search
@@ -244,6 +246,39 @@ export default function AppShell({ title, description, actions, children }: Prop
             </Link>
           );
         })}
+
+        {/* SuperAdmin-only link */}
+        {me?.role === "SuperAdmin" && (() => {
+          const active = pathname.startsWith("/superadmin");
+          return (
+            <>
+              {(!collapsed || isMobile) && (
+                <div style={{ margin: "8px 16px 4px", fontSize: 10, fontWeight: 700, color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  Platform
+                </div>
+              )}
+              <Link
+                href="/superadmin"
+                onClick={() => setSidebarOpen(false)}
+                style={{
+                  display: "flex", alignItems: "center",
+                  gap: 10, padding: "10px 14px",
+                  margin: "1px 8px", borderRadius: 10,
+                  textDecoration: "none",
+                  background: active ? "rgba(234,179,8,0.2)" : "transparent",
+                  color: active ? "#fbbf24" : "#78716c",
+                  fontWeight: active ? 700 : 500,
+                  fontSize: 14,
+                  transition: "background 0.12s, color 0.12s",
+                  justifyContent: collapsed && !isMobile ? "center" : undefined,
+                }}
+              >
+                <ShieldCheck size={18} style={{ flexShrink: 0, color: active ? "#fbbf24" : undefined }} />
+                {(!collapsed || isMobile) && <span style={{ flex: 1, whiteSpace: "nowrap" }}>Platform Yönetimi</span>}
+              </Link>
+            </>
+          );
+        })()}
       </nav>
 
       {/* User area */}
@@ -316,6 +351,32 @@ export default function AppShell({ title, description, actions, children }: Prop
 
       {/* Main */}
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+
+        {/* Impersonation banner */}
+        {impersonatingSalon && (
+          <div style={{
+            background: "#7f1d1d", color: "#fecaca",
+            padding: "8px 20px", fontSize: 13, fontWeight: 700,
+            display: "flex", alignItems: "center", gap: 10,
+            borderBottom: "2px solid #991b1b",
+          }}>
+            <ShieldCheck size={16} />
+            <span><strong>{impersonatingSalon}</strong> salonu adına bağlısınız</span>
+            <button
+              onClick={() => {
+                exitImpersonation();
+                window.location.href = "/superadmin";
+              }}
+              style={{
+                marginLeft: "auto", padding: "4px 14px", borderRadius: 8,
+                background: "#991b1b", border: "1px solid #b91c1c",
+                color: "#fecaca", cursor: "pointer", fontWeight: 700, fontSize: 12,
+              }}
+            >
+              Bağlantıyı Kes
+            </button>
+          </div>
+        )}
 
         {/* Trial banner */}
         {trialDays !== null && trialDays <= 14 && (

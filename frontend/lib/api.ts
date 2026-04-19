@@ -25,6 +25,30 @@ export function clearToken(): void {
   localStorage.removeItem("trialDaysLeft");
 }
 
+/* ── Impersonation helpers ─────────────────────────────────────────── */
+export function enterImpersonation(token: string, salonName: string): void {
+  const original = getToken();
+  if (original) localStorage.setItem("originalToken", original);
+  localStorage.setItem("accessToken", token);
+  localStorage.setItem("impersonatingSalon", salonName);
+}
+
+export function exitImpersonation(): void {
+  const original = localStorage.getItem("originalToken");
+  if (original) {
+    localStorage.setItem("accessToken", original);
+  } else {
+    localStorage.removeItem("accessToken");
+  }
+  localStorage.removeItem("originalToken");
+  localStorage.removeItem("impersonatingSalon");
+}
+
+export function getImpersonatingSalon(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("impersonatingSalon");
+}
+
 /* ── Authenticated fetch wrapper ───────────────────────────────────── */
 export async function apiFetch(
   path: string,

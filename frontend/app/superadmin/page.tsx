@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import RoleGuard from "@/components/RoleGuard";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, enterImpersonation } from "@/lib/api";
 import { btn, inp } from "@/lib/ui";
 import { fmtDate } from "@/lib/tz";
 import { APP_VERSION } from "@/lib/version";
@@ -625,6 +625,19 @@ function SalonDetail({ salon, onClose, onUpdated, onMessage, tab, setTab }: {
   tab: "general" | "modules" | "users";
   setTab: (t: "general" | "modules" | "users") => void;
 }) {
+  const [impersonating, setImpersonating] = useState(false);
+
+  const handleImpersonate = async () => {
+    setImpersonating(true);
+    try {
+      const res = await apiFetch(`/superadmin/salons/${salon.id}/impersonate`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onMessage(d.message ?? "Bağlantı kurulamadı."); return; }
+      const data = await res.json();
+      enterImpersonation(data.accessToken, salon.name);
+      window.location.href = "/dashboard";
+    } finally { setImpersonating(false); }
+  };
+
   return (
     <div style={{ ...card, overflow: "hidden" }}>
       <div style={{ padding: "16px 20px", borderBottom: "1px solid #eaecf0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -632,7 +645,22 @@ function SalonDetail({ salon, onClose, onUpdated, onMessage, tab, setTab }: {
           <div style={{ fontWeight: 800, fontSize: 16 }}>{salon.name}</div>
           <div style={{ fontSize: 12, color: "#667085", marginTop: 2 }}>{salon.id}</div>
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#667085" }}>✕</button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={handleImpersonate}
+            disabled={!salon.isActive || impersonating}
+            title={!salon.isActive ? "Salon pasif" : "Bu salon adına giriş yap"}
+            style={{
+              padding: "6px 14px", borderRadius: 8, border: "none", cursor: salon.isActive ? "pointer" : "not-allowed",
+              background: salon.isActive ? "#7c3aed" : "#d1d5db", color: "#fff",
+              fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", gap: 6,
+              opacity: impersonating ? 0.7 : 1,
+            }}
+          >
+            🔐 {impersonating ? "Bağlanıyor..." : "Salona Bağlan"}
+          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#667085" }}>✕</button>
+        </div>
       </div>
 
       <div style={{ display: "flex", borderBottom: "1px solid #eaecf0", padding: "0 20px" }}>
@@ -859,14 +887,30 @@ function ModulesTab({ salonId, onMessage }: { salonId: string; onMessage: (m: st
 }
 
 function SalonUsersTab({ salonId }: { salonId: string }) {
-  const [users,   setUsers]   = useState<SalonUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [users,         setUsers]         = useState<SalonUser[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [resetUserId,   setResetUserId]   = useState<string | null>(null);
+  const [newPassword,   setNewPassword]   = useState("");
+  const [resetting,     setResetting]     = useState(false);
+  const [message,       setMessage]       = useState("");
 
   useEffect(() => {
     apiFetch(`/superadmin/salons/${salonId}/users`)
       .then(r => r.ok ? r.json() : [])
       .then(d => { setUsers(Array.isArray(d) ? d : []); setLoading(false); });
   }, [salonId]);
+
+  const resetPassword = async (userId: string) => {
+    if (!newPassword || newPassword.length < 6) { setMessage("Şifre en az 6 karakter olmalı."); return; }
+    setResetting(true);
+    const res = await apiFetch(`/superadmin/salons/${salonId}/users/${userId}/reset-password`, {
+      method: "PUT",
+      body: JSON.stringify({ newPassword }),
+    });
+    setResetting(false);
+    if (res.ok) { setMessage("Şifre güncellendi."); setResetUserId(null); setNewPassword(""); }
+    else { const d = await res.json().catch(() => ({})); setMessage(d.message ?? "Hata."); }
+  };
 
   const ROLE_COLORS: Record<string, string> = {
     SuperAdmin: "#7c3aed", SalonYonetici: "#1d4ed8",
@@ -878,27 +922,58 @@ function SalonUsersTab({ salonId }: { salonId: string }) {
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
+      {message && (
+        <div style={{ padding: "8px 14px", borderRadius: 8, background: "#f0fdf4", color: "#059669", border: "1px solid #bbf7d0", fontSize: 13, fontWeight: 600 }}
+          onClick={() => setMessage("")}>✓ {message}</div>
+      )}
       {users.map(u => {
         const rc = ROLE_COLORS[u.roleName] ?? "#374151";
+        const isResetting = resetUserId === u.id;
         return (
-          <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "var(--surface-2, #f8fafc)", borderRadius: 10, border: "1px solid #f2f4f7" }}>
-            <div style={{ width: 34, height: 34, borderRadius: "50%", background: rc, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
-              {u.fullName.charAt(0).toUpperCase()}
+          <div key={u.id} style={{ background: "var(--surface-2, #f8fafc)", borderRadius: 10, border: "1px solid #f2f4f7", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: rc, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                {u.fullName.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text, #101828)" }}>{u.fullName}</div>
+                <div style={{ fontSize: 11, color: "#667085" }}>{u.userName} · {u.email}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: `${rc}18`, color: rc, border: `1px solid ${rc}30` }}>
+                  {u.roleName}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999,
+                  background: u.isActive ? "#f0fdf4" : "#fef3f2",
+                  color: u.isActive ? "#059669" : "#b42318" }}>
+                  {u.isActive ? "Aktif" : "Pasif"}
+                </span>
+                <button
+                  onClick={() => { setResetUserId(isResetting ? null : u.id); setNewPassword(""); setMessage(""); }}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #e4e7ec", background: isResetting ? "#f3f4f6" : "var(--surface,#fff)", color: "#374151", cursor: "pointer", fontWeight: 600, fontSize: 11 }}
+                >
+                  🔑 Şifre
+                </button>
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--text, #101828)" }}>{u.fullName}</div>
-              <div style={{ fontSize: 11, color: "#667085" }}>{u.userName} · {u.email}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: `${rc}18`, color: rc, border: `1px solid ${rc}30` }}>
-                {u.roleName}
-              </span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999,
-                background: u.isActive ? "#f0fdf4" : "#fef3f2",
-                color: u.isActive ? "#059669" : "#b42318" }}>
-                {u.isActive ? "Aktif" : "Pasif"}
-              </span>
-            </div>
+            {isResetting && (
+              <div style={{ padding: "10px 14px", borderTop: "1px solid #f2f4f7", display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="password"
+                  placeholder="Yeni şifre (min. 6 karakter)"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13, outline: "none" }}
+                />
+                <button
+                  onClick={() => resetPassword(u.id)}
+                  disabled={resetting}
+                  style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, cursor: resetting ? "not-allowed" : "pointer", fontSize: 12 }}
+                >
+                  {resetting ? "..." : "Kaydet"}
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
