@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /demo
+Allow: /salon-bul
+Allow: /site/
+Disallow: /dashboard
+Disallow: /appointments
+Disallow: /customers
+Disallow: /finance
+Disallow: /kasa
+Disallow: /raporlar
+Disallow: /services
+Disallow: /stylists
+Disallow: /stock
+Disallow: /takvim
+Disallow: /tasks
+Disallow: /website
+Disallow: /whatsapp
+Disallow: /ayarlar
+Disallow: /superadmin
+
+Sitemap: https://xcut.xshield.com.tr/sitemap.xml
