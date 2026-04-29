@@ -31,17 +31,23 @@ const APP_PATHS = new Set([
   "/api",
 ]);
 
+function noCache(): NextResponse {
+  const res = NextResponse.next();
+  res.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+  return res;
+}
+
 export function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const host = req.headers.get("host") ?? "";
   const hostNoPort = host.split(":")[0];
 
-  // If it's an app hostname → pass through
-  if (APP_HOSTNAMES.has(hostNoPort)) return NextResponse.next();
+  // If it's an app hostname → pass through (no CDN caching for app pages)
+  if (APP_HOSTNAMES.has(hostNoPort)) return noCache();
 
-  // If the path belongs to the app → pass through
+  // If the path belongs to the app → pass through (no CDN caching)
   const firstSegment = "/" + url.pathname.split("/")[1];
-  if (APP_PATHS.has(firstSegment)) return NextResponse.next();
+  if (APP_PATHS.has(firstSegment)) return noCache();
 
   // Extract subdomain slug
   let slug = "";
