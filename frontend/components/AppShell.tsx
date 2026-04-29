@@ -99,7 +99,10 @@ export default function AppShell({ title, description, actions, children }: Prop
 
   // Load user data
   useEffect(() => {
-    apiFetch("/Auth/me").then(r => r.ok ? r.json() : null).then(setMe);
+    apiFetch("/Auth/me").then(r => {
+      if (r.status === 401) { clearToken(); router.replace("/login"); return null; }
+      return r.ok ? r.json() : null;
+    }).then(setMe);
     apiFetch("/Settings/organization").then(r => r.ok ? r.json() : null).then(d => {
       setOrg(d);
       if (d?.primaryColor) {
