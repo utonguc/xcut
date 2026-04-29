@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
 
-const PUBLIC_PATHS = ["/", "/login", "/salon-bul", "/site/", "/portal"];
+const PUBLIC_PATHS = ["/", "/login", "/demo", "/salon-bul", "/site/", "/portal"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p));
