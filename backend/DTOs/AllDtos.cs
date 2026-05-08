@@ -537,6 +537,15 @@ public class StylistLeaveResponse
     public string   StylistName { get; set; } = string.Empty;
 }
 
+public class CreatePersonelLeaveRequest
+{
+    public Guid    StylistId { get; set; }
+    public string  StartDate { get; set; } = string.Empty; // yyyy-MM-dd
+    public string  EndDate   { get; set; } = string.Empty; // yyyy-MM-dd
+    public string  LeaveType { get; set; } = "Mazeret";
+    public string? Note      { get; set; }
+}
+
 public class TimeSlotResponse
 {
     public DateTime StartUtc  { get; set; }

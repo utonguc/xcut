@@ -1,14 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using XCut.Api.Data;
+using XCut.Api.DTOs;
 using XCut.Api.Models;
 
 namespace XCut.Api.Controllers;
 
 [ApiController]
-[Route("[controller]")]
+[Route("api/[controller]")]
 [Authorize]
 public class PersonelController : ControllerBase
 {
@@ -17,15 +19,12 @@ public class PersonelController : ControllerBase
 
     private async Task<Guid?> GetSalonIdAsync()
     {
-        var raw = User.FindFirstValue("salonId") ?? User.FindFirstValue("SalonId");
-        if (Guid.TryParse(raw, out var id)) return id;
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userId is null) return null;
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id.ToString() == userId);
-        return user?.SalonId;
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        if (!Guid.TryParse(sub, out var userId)) return null;
+        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
     }
 
-    // GET /Personel/attendance?year=2026&month=5
+    // GET /api/Personel/attendance?year=2026&month=5
     [HttpGet("attendance")]
     public async Task<IActionResult> GetAttendance([FromQuery] int year, [FromQuery] int month)
     {
@@ -48,7 +47,7 @@ public class PersonelController : ControllerBase
         return Ok(rows);
     }
 
-    // PUT /Personel/attendance  — upsert a single day entry
+    // PUT /api/Personel/attendance — upsert a single day entry
     [HttpPut("attendance")]
     public async Task<IActionResult> UpsertAttendance([FromBody] UpsertAttendanceRequest req)
     {
@@ -88,7 +87,7 @@ public class PersonelController : ControllerBase
         return Ok();
     }
 
-    // GET /Personel/leaves?stylistId=...
+    // GET /api/Personel/leaves?stylistId=...
     [HttpGet("leaves")]
     public async Task<IActionResult> GetLeaves([FromQuery] Guid? stylistId = null)
     {
@@ -108,8 +107,9 @@ public class PersonelController : ControllerBase
             {
                 l.Id, l.StylistId,
                 StylistName = l.Stylist!.FullName,
-                StartDate = l.StartAtUtc.ToString("yyyy-MM-dd"),
-                EndDate   = l.EndAtUtc.ToString("yyyy-MM-dd"),
+                StartDate   = l.StartAtUtc.ToString("yyyy-MM-dd"),
+                EndDate     = l.EndAtUtc.ToString("yyyy-MM-dd"),
+                LeaveType   = l.LeaveType ?? "Mazeret",
                 l.Reason,
             })
             .ToListAsync();
@@ -117,7 +117,55 @@ public class PersonelController : ControllerBase
         return Ok(leaves);
     }
 
-    // GET /Personel/summary?year=2026&month=5
+    // POST /api/Personel/leaves
+    [HttpPost("leaves")]
+    public async Task<IActionResult> CreateLeave([FromBody] CreatePersonelLeaveRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        if (!DateOnly.TryParse(req.StartDate, out var start))
+            return BadRequest(new { message = "Geçersiz başlangıç tarihi." });
+        if (!DateOnly.TryParse(req.EndDate, out var end))
+            return BadRequest(new { message = "Geçersiz bitiş tarihi." });
+        if (start > end)
+            return BadRequest(new { message = "Bitiş tarihi başlangıçtan önce olamaz." });
+
+        var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == req.StylistId && s.SalonId == salonId.Value);
+        if (stylist is null) return NotFound(new { message = "Stilist bulunamadı." });
+
+        var leave = new StylistLeave
+        {
+            StylistId  = req.StylistId,
+            SalonId    = salonId.Value,
+            StartAtUtc = start.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            EndAtUtc   = end.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc),
+            Reason     = req.Note,
+            LeaveType  = req.LeaveType,
+        };
+        _db.StylistLeaves.Add(leave);
+        await _db.SaveChangesAsync();
+        return Ok(new { leave.Id });
+    }
+
+    // DELETE /api/Personel/leaves/{id}
+    [HttpDelete("leaves/{id:guid}")]
+    public async Task<IActionResult> DeleteLeave(Guid id)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var leave = await _db.StylistLeaves
+            .Include(l => l.Stylist)
+            .FirstOrDefaultAsync(l => l.Id == id && l.Stylist!.SalonId == salonId.Value);
+        if (leave is null) return NotFound();
+
+        _db.StylistLeaves.Remove(leave);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // GET /api/Personel/summary?year=2026&month=5
     [HttpGet("summary")]
     public async Task<IActionResult> MonthlySummary([FromQuery] int year, [FromQuery] int month)
     {
@@ -143,10 +191,10 @@ public class PersonelController : ControllerBase
             return new
             {
                 s.Id, s.FullName, s.PayType, s.FixedSalary, s.CommissionRate,
-                Present  = sa.Count(a => a.Status == "present"),
-                Absent   = sa.Count(a => a.Status == "absent"),
-                Leave    = sa.Count(a => a.Status == "leave"),
-                Holiday  = sa.Count(a => a.Status == "holiday"),
+                Present     = sa.Count(a => a.Status == "present"),
+                Absent      = sa.Count(a => a.Status == "absent"),
+                Leave       = sa.Count(a => a.Status == "leave"),
+                Holiday     = sa.Count(a => a.Status == "holiday"),
                 WorkingDays = workingDays,
             };
         });

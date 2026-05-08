@@ -505,5 +505,9 @@ public static class SchemaUpdater
             UNIQUE ("StylistId", "Date")
         );
 
+        -- LeaveType on StylistLeaves
+        ALTER TABLE "StylistLeaves"
+            ADD COLUMN IF NOT EXISTS "LeaveType" text NOT NULL DEFAULT 'Mazeret';
+
         """;
 }

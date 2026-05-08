@@ -25,6 +25,7 @@ public class StylistLeave
     public DateTime StartAtUtc  { get; set; }
     public DateTime EndAtUtc    { get; set; }
     public string?  Reason      { get; set; }
+    public string   LeaveType   { get; set; } = "Mazeret";
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public Stylist? Stylist { get; set; }
