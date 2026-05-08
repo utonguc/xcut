@@ -100,6 +100,7 @@ export default function AppShell({ title, description, actions, children }: Prop
   const { theme, toggleTheme } = useTheme();
 
   const [me,               setMe]               = useState<Me | null>(null);
+  const [permChecked,      setPermChecked]      = useState(false);
   const [org,              setOrg]              = useState<Org | null>(null);
   const [sidebarOpen,      setSidebarOpen]      = useState(false);   // mobile drawer
   const [collapsed,        setCollapsed]        = useState(false);   // desktop collapse
@@ -112,12 +113,15 @@ export default function AppShell({ title, description, actions, children }: Prop
   const [announcement,     setAnnouncement]     = useState<string | null>(null);
   const [impersonatingSalon, setImpersonatingSalon] = useState<string | null>(null);
 
-  // Load user data
+  // Load user data + permission guard
   useEffect(() => {
     apiFetch("/Auth/me").then(r => {
       if (r.status === 401) { clearToken(); router.replace("/login"); return null; }
       return r.ok ? r.json() : null;
-    }).then(setMe);
+    }).then((d: Me | null) => {
+      setMe(d);
+      setPermChecked(true);
+    });
     apiFetch("/Settings/organization").then(r => r.ok ? r.json() : null).then(d => {
       setOrg(d);
       if (d?.primaryColor) {
@@ -588,7 +592,27 @@ export default function AppShell({ title, description, actions, children }: Prop
           maxWidth: "100%",
           overflowX: "hidden",
         }}>
-          {children}
+          {!permChecked ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200 }}>
+              <div style={{ width: 32, height: 32, border: "3px solid #ede9fe", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            </div>
+          ) : (() => {
+            if (!me) return children;
+            const navEntry = ALL_NAV.find(n => pathname === n.href || (n.href !== "/" && pathname.startsWith(n.href)));
+            if (navEntry && navEntry.module !== "core") {
+              const isAdmin = ADMIN_ROLES.includes(me.role ?? "");
+              const perms   = me.permissionModules ?? [];
+              const allowed = (isAdmin && perms.length === 0) || perms.includes(navEntry.module);
+              if (!allowed) return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: 300, gap: 12, textAlign: "center" }}>
+                  <div style={{ fontSize: 48 }}>🔒</div>
+                  <div style={{ fontWeight: 800, fontSize: 20, color: "var(--text,#101828)" }}>Erişim Yetkiniz Yok</div>
+                  <div style={{ fontSize: 14, color: "#64748b", maxWidth: 340 }}>Bu sayfayı görüntülemek için gerekli yetkiye sahip değilsiniz. Yöneticinizle iletişime geçin.</div>
+                </div>
+              );
+            }
+            return children;
+          })()}
         </main>
       </div>
 
