@@ -24,6 +24,9 @@ public class Stylist
     // ── Kasa / Pay ────────────────────────────────────────────────────────────
     /// <summary>Stilistin satışlarından aldığı pay yüzdesi (0-100). Ör: 60 → %60.</summary>
     public decimal CommissionRate { get; set; } = 0;
+    /// <summary>commission | fixed_monthly | fixed_weekly | fixed_daily</summary>
+    public string  PayType     { get; set; } = "commission";
+    public decimal FixedSalary { get; set; } = 0;
 
     // ── Meta ──────────────────────────────────────────────────────────────────
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

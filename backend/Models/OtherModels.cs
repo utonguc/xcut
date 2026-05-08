@@ -120,7 +120,9 @@ public class StockItem
     public string? Unit        { get; set; }
     public string? Barcode     { get; set; }
     public string? Supplier    { get; set; }
-    public decimal UnitCost    { get; set; }
+    public decimal UnitCost      { get; set; }
+    public decimal SalePrice     { get; set; }
+    public decimal StaffBonusPct { get; set; }
     public int     Quantity    { get; set; }
     public int     MinQuantity { get; set; } = 5;
     public DateTime? ExpiresAtUtc { get; set; }
@@ -487,21 +489,77 @@ public class Asset
 
 // ── POS / Kasa ────────────────────────────────────────────────────────────────
 
+public class BankAccount
+{
+    public Guid    Id          { get; set; } = Guid.NewGuid();
+    public Guid    SalonId     { get; set; }
+    public string  BankName    { get; set; } = string.Empty;
+    public string  AccountName { get; set; } = string.Empty;
+    public string? IBAN        { get; set; }
+    public bool    IsActive    { get; set; } = true;
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+public class CashSession
+{
+    public Guid    Id              { get; set; } = Guid.NewGuid();
+    public Guid    SalonId         { get; set; }
+    public Guid    OpenedByUserId  { get; set; }
+    public User?   OpenedBy        { get; set; }
+    public Guid?   ClosedByUserId  { get; set; }
+    public User?   ClosedBy        { get; set; }
+    public decimal OpeningBalance  { get; set; } = 0;
+    public decimal? ClosingBalance { get; set; }
+    public string  Status          { get; set; } = "Open"; // Open | Closed
+    public string? Notes           { get; set; }
+    public DateTime OpenedAtUtc    { get; set; } = DateTime.UtcNow;
+    public DateTime? ClosedAtUtc   { get; set; }
+
+    public ICollection<PosTransaction> Transactions { get; set; } = new List<PosTransaction>();
+    public ICollection<CashExpense>    Expenses      { get; set; } = new List<CashExpense>();
+}
+
+public class CashExpense
+{
+    public Guid    Id              { get; set; } = Guid.NewGuid();
+    public Guid    SalonId         { get; set; }
+    public Guid?   CashSessionId   { get; set; }
+    public CashSession? Session    { get; set; }
+    public string  Description     { get; set; } = string.Empty;
+    public string  Category        { get; set; } = "Genel";
+    public decimal Amount          { get; set; }
+    public string  PaymentMethod   { get; set; } = "cash"; // cash | card | bank
+    public Guid?   BankAccountId   { get; set; }
+    public BankAccount? BankAccount { get; set; }
+    public Guid?   CreatedByUserId { get; set; }
+    public User?   CreatedBy       { get; set; }
+    public string? Notes           { get; set; }
+    public DateTime CreatedAtUtc   { get; set; } = DateTime.UtcNow;
+}
+
 public class PosTransaction
 {
     public Guid    Id             { get; set; } = Guid.NewGuid();
     public Guid    SalonId        { get; set; }
     public Guid?   StylistId      { get; set; }
     public Stylist? Stylist       { get; set; }
+    public Guid?   AppointmentId  { get; set; }
+    public Guid?   CashSessionId  { get; set; }
+    public CashSession? Session   { get; set; }
+    public Guid?   BankAccountId  { get; set; }
+    public BankAccount? BankAccount { get; set; }
+    public Guid?   CustomerId     { get; set; }
+    public Customer? Customer     { get; set; }
     public string? CustomerName   { get; set; }
     public decimal Subtotal       { get; set; }
     public string  DiscountType   { get; set; } = "none"; // none | percent | fixed
     public decimal DiscountValue  { get; set; }
     public decimal DiscountAmount { get; set; }
     public decimal Total          { get; set; }
-    public string  PaymentMethod  { get; set; } = "cash"; // cash | card | mixed
+    public string  PaymentMethod  { get; set; } = "cash"; // cash | card | mixed | bank
     public decimal CashAmount     { get; set; }
     public decimal CardAmount     { get; set; }
+    public decimal BankAmount     { get; set; }
     public string? Notes          { get; set; }
     public string  Status         { get; set; } = "completed"; // completed | cancelled
     public DateTime CreatedAtUtc  { get; set; } = DateTime.UtcNow;
@@ -514,6 +572,8 @@ public class PosTransactionItem
     public Guid    TransactionId { get; set; }
     public PosTransaction? Transaction { get; set; }
     public Guid?   ServiceId    { get; set; }
+    public Guid?   StockItemId  { get; set; }
+    public decimal StaffBonusPct { get; set; }
     public string  Name         { get; set; } = string.Empty;
     public decimal UnitPrice    { get; set; }
     public int     Quantity     { get; set; } = 1;
@@ -534,4 +594,67 @@ public class ScheduledReport
     public DateTime? LastSentAtUtc { get; set; }
     public DateTime? NextRunAtUtc  { get; set; }
     public DateTime CreatedAtUtc   { get; set; } = DateTime.UtcNow;
+}
+
+// ── Permission Groups (RBAC) ──────────────────────────────────────────────────
+
+public class PermissionGroup
+{
+    public Guid    Id             { get; set; } = Guid.NewGuid();
+    public Guid    SalonId        { get; set; }
+    public string  Name           { get; set; } = string.Empty;
+    public string? Description    { get; set; }
+    public string  AllowedModules { get; set; } = "[]"; // JSON: ["appointments","kasa",...]
+    public bool    IsSelfOnly     { get; set; } = false; // true = stilist kendi datasını görür
+    public bool    IsBuiltIn      { get; set; } = false;
+    public DateTime CreatedAtUtc  { get; set; } = DateTime.UtcNow;
+
+    public ICollection<UserPermissionGroup> UserGroups { get; set; } = new List<UserPermissionGroup>();
+}
+
+public class UserPermissionGroup
+{
+    public Guid             UserId            { get; set; }
+    public User?            User              { get; set; }
+    public Guid             PermissionGroupId { get; set; }
+    public PermissionGroup? Group             { get; set; }
+}
+
+// ── Boya Kartelası ────────────────────────────────────────────────────────────
+
+public class ColorFormula
+{
+    public Guid    Id              { get; set; } = Guid.NewGuid();
+    public Guid    SalonId         { get; set; }
+    public Guid    CustomerId      { get; set; }
+    public Customer? Customer      { get; set; }
+    public Guid?   StylistId       { get; set; }
+    public Stylist? Stylist        { get; set; }
+    public string  FormulaName     { get; set; } = string.Empty;
+    public string? Brand           { get; set; }
+    // JSON: [{"name":"7.1","amount":"50g"},{"name":"0.1","amount":"10g"}]
+    public string? ColorsJson      { get; set; }
+    public string? Developer       { get; set; }
+    public string? DeveloperVolume { get; set; } // "10vol" | "20vol" | "30vol" | "40vol"
+    public int?    ProcessMinutes  { get; set; }
+    public string? Notes           { get; set; }
+    public DateTime CreatedAtUtc   { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc   { get; set; } = DateTime.UtcNow;
+}
+
+// ── Puantaj / Devam ───────────────────────────────────────────────────────────
+
+public class StylistAttendance
+{
+    public Guid    Id         { get; set; } = Guid.NewGuid();
+    public Guid    SalonId    { get; set; }
+    public Guid    StylistId  { get; set; }
+    public Stylist? Stylist   { get; set; }
+    /// <summary>present | absent | leave | holiday</summary>
+    public string  Status     { get; set; } = "present";
+    public DateOnly Date      { get; set; }
+    public string? CheckIn    { get; set; }
+    public string? CheckOut   { get; set; }
+    public string? Note       { get; set; }
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }

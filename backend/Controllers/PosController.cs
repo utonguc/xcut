@@ -81,11 +81,42 @@ public class PosController : ControllerBase
             _       => 0,
         };
 
+        decimal bankAmount = req.PaymentMethod switch
+        {
+            "bank"  => total,
+            "mixed" => req.BankAmount,
+            _       => 0,
+        };
+
+        // Açık kasa oturumunu otomatik bağla
+        var openSessionId = req.CashSessionId;
+        if (openSessionId is null)
+        {
+            openSessionId = await _db.CashSessions
+                .Where(s => s.SalonId == salonId.Value && s.Status == "Open")
+                .OrderByDescending(s => s.OpenedAtUtc)
+                .Select(s => (Guid?)s.Id)
+                .FirstOrDefaultAsync();
+        }
+
+        // Look up customer name from CustomerId if provided
+        string? customerName = req.CustomerName?.Trim();
+        if (req.CustomerId.HasValue && string.IsNullOrWhiteSpace(customerName))
+        {
+            var cust = await _db.Customers.Select(c => new { c.Id, FullName = c.FirstName + " " + c.LastName })
+                .FirstOrDefaultAsync(c => c.Id == req.CustomerId.Value);
+            customerName = cust?.FullName;
+        }
+
         var tx = new PosTransaction
         {
             SalonId        = salonId.Value,
             StylistId      = req.StylistId,
-            CustomerName   = req.CustomerName?.Trim(),
+            CustomerId     = req.CustomerId,
+            AppointmentId  = req.AppointmentId,
+            CashSessionId  = openSessionId,
+            BankAccountId  = req.BankAccountId,
+            CustomerName   = customerName,
             Subtotal       = subtotal,
             DiscountType   = req.DiscountType ?? "none",
             DiscountValue  = req.DiscountValue,
@@ -94,6 +125,7 @@ public class PosController : ControllerBase
             PaymentMethod  = req.PaymentMethod ?? "cash",
             CashAmount     = cashAmount,
             CardAmount     = cardAmount,
+            BankAmount     = bankAmount,
             Notes          = req.Notes,
             Status         = "completed",
         };
@@ -102,15 +134,49 @@ public class PosController : ControllerBase
         {
             tx.Items.Add(new PosTransactionItem
             {
-                ServiceId = item.ServiceId,
-                Name      = item.Name,
-                UnitPrice = item.UnitPrice,
-                Quantity  = item.Quantity,
-                LineTotal = item.UnitPrice * item.Quantity,
+                ServiceId    = item.ServiceId,
+                StockItemId  = item.StockItemId,
+                StaffBonusPct = item.StaffBonusPct,
+                Name         = item.Name,
+                UnitPrice    = item.UnitPrice,
+                Quantity     = item.Quantity,
+                LineTotal    = item.UnitPrice * item.Quantity,
             });
+
+            // Reduce stock when selling a stock item
+            if (item.StockItemId.HasValue)
+            {
+                var stockItem = await _db.StockItems
+                    .FirstOrDefaultAsync(s => s.Id == item.StockItemId.Value && s.SalonId == salonId.Value);
+                if (stockItem is not null)
+                {
+                    stockItem.Quantity = Math.Max(0, stockItem.Quantity - item.Quantity);
+                    _db.StockMovements.Add(new StockMovement
+                    {
+                        StockItemId = item.StockItemId.Value,
+                        Type        = "out",
+                        Quantity    = item.Quantity,
+                        Note        = $"Kasa satışı #{tx.Id.ToString()[..8]}",
+                    });
+                }
+            }
         }
 
         _db.PosTransactions.Add(tx);
+
+        // Randevuyu tamamlandı olarak işaretle ve kasa bağlantısını güncelle
+        if (req.AppointmentId.HasValue)
+        {
+            var appt = await _db.Appointments
+                .FirstOrDefaultAsync(a => a.Id == req.AppointmentId.Value && a.SalonId == salonId.Value);
+            if (appt is not null)
+            {
+                appt.PosTransactionId = tx.Id;
+                if (appt.Status == "Scheduled") appt.Status = "Completed";
+                appt.UpdatedAtUtc = DateTime.UtcNow;
+            }
+        }
+
         await _db.SaveChangesAsync();
 
         return Ok(new
@@ -119,6 +185,7 @@ public class PosController : ControllerBase
             tx.Total,
             tx.CashAmount,
             tx.CardAmount,
+            tx.BankAmount,
             tx.PaymentMethod,
             tx.CreatedAtUtc,
             itemCount = tx.Items.Count,
@@ -233,25 +300,278 @@ public class PosController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { stylist.Id, stylist.CommissionRate });
     }
+
+    // GET api/Pos/from-appointment/{appointmentId}
+    [HttpGet("from-appointment/{appointmentId:guid}")]
+    public async Task<IActionResult> FromAppointment(Guid appointmentId)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var appt = await _db.Appointments
+            .Include(a => a.Customer)
+            .Include(a => a.Service)
+            .FirstOrDefaultAsync(a => a.Id == appointmentId && a.SalonId == salonId.Value);
+
+        if (appt is null) return NotFound();
+        if (appt.PosTransactionId.HasValue)
+            return BadRequest(new { message = "Bu randevu zaten kasaya aktarılmış." });
+
+        return Ok(new
+        {
+            appointmentId    = appt.Id,
+            customerId       = appt.CustomerId,
+            customerFullName = appt.Customer != null
+                ? $"{appt.Customer.FirstName} {appt.Customer.LastName}".Trim()
+                : null,
+            stylistId        = appt.StylistId,
+            suggestedItems   = new[]
+            {
+                new
+                {
+                    serviceId = appt.ServiceId,
+                    name      = appt.ServiceName,
+                    unitPrice = appt.Service?.Price ?? 0m,
+                    quantity  = 1,
+                }
+            }
+        });
+    }
+
+    // GET api/Pos/session/current
+    [HttpGet("session/current")]
+    public async Task<IActionResult> GetCurrentSession()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var session = await _db.CashSessions
+            .Where(s => s.SalonId == salonId.Value && s.Status == "Open")
+            .OrderByDescending(s => s.OpenedAtUtc)
+            .FirstOrDefaultAsync();
+
+        if (session is null) return Ok(null);
+
+        var txSum = await _db.PosTransactions
+            .Where(t => t.CashSessionId == session.Id && t.Status == "completed")
+            .GroupBy(_ => 1)
+            .Select(g => new { cash = g.Sum(t => t.CashAmount), card = g.Sum(t => t.CardAmount), bank = g.Sum(t => t.BankAmount), total = g.Sum(t => t.Total) })
+            .FirstOrDefaultAsync();
+
+        var expSum = await _db.CashExpenses
+            .Where(e => e.CashSessionId == session.Id)
+            .SumAsync(e => e.Amount);
+
+        return Ok(new
+        {
+            session.Id,
+            session.OpenedAtUtc,
+            session.OpeningBalance,
+            session.Status,
+            totalRevenue  = txSum?.total ?? 0,
+            totalCash     = txSum?.cash  ?? 0,
+            totalCard     = txSum?.card  ?? 0,
+            totalBank     = txSum?.bank  ?? 0,
+            totalExpenses = expSum,
+            netCash       = (session.OpeningBalance + (txSum?.cash ?? 0)) - expSum,
+        });
+    }
+
+    // POST api/Pos/session/open
+    [HttpPost("session/open")]
+    public async Task<IActionResult> OpenSession([FromBody] OpenSessionRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var existing = await _db.CashSessions
+            .AnyAsync(s => s.SalonId == salonId.Value && s.Status == "Open");
+        if (existing) return BadRequest(new { message = "Zaten açık bir kasa oturumu var." });
+
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        if (!Guid.TryParse(sub, out var userId)) return Unauthorized();
+
+        var session = new CashSession
+        {
+            SalonId        = salonId.Value,
+            OpenedByUserId = userId,
+            OpeningBalance = req.OpeningBalance,
+            Notes          = req.Notes,
+        };
+        _db.CashSessions.Add(session);
+        await _db.SaveChangesAsync();
+        return Ok(new { session.Id, session.OpenedAtUtc, session.OpeningBalance });
+    }
+
+    // POST api/Pos/session/{id}/close
+    [HttpPost("session/{id:guid}/close")]
+    public async Task<IActionResult> CloseSession(Guid id, [FromBody] CloseSessionRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var session = await _db.CashSessions
+            .FirstOrDefaultAsync(s => s.Id == id && s.SalonId == salonId.Value && s.Status == "Open");
+        if (session is null) return NotFound(new { message = "Açık oturum bulunamadı." });
+
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        if (!Guid.TryParse(sub, out var userId)) return Unauthorized();
+
+        var txs = await _db.PosTransactions
+            .Where(t => t.CashSessionId == id && t.Status == "completed")
+            .ToListAsync();
+
+        var expenses = await _db.CashExpenses
+            .Where(e => e.CashSessionId == id)
+            .ToListAsync();
+
+        var totalCash = txs.Sum(t => t.CashAmount);
+        var totalCard = txs.Sum(t => t.CardAmount);
+        var totalBank = txs.Sum(t => t.BankAmount);
+        var totalRevenue  = txs.Sum(t => t.Total);
+        var totalExpenses = expenses.Sum(e => e.Amount);
+        var netCash       = session.OpeningBalance + totalCash - totalExpenses;
+
+        session.ClosedByUserId = userId;
+        session.ClosedAtUtc    = DateTime.UtcNow;
+        session.ClosingBalance = req.ClosingBalance ?? netCash;
+        session.Status         = "Closed";
+        session.Notes          = req.Notes ?? session.Notes;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            session.Id,
+            session.OpenedAtUtc,
+            session.ClosedAtUtc,
+            session.OpeningBalance,
+            session.ClosingBalance,
+            totalRevenue,
+            totalCash,
+            totalCard,
+            totalBank,
+            totalExpenses,
+            netCash,
+            txCount      = txs.Count,
+            expenseCount = expenses.Count,
+        });
+    }
+
+    // GET api/Pos/expenses?sessionId=&page=1
+    [HttpGet("expenses")]
+    public async Task<IActionResult> GetExpenses([FromQuery] Guid? sessionId, [FromQuery] int page = 1, [FromQuery] int pageSize = 30)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var q = _db.CashExpenses
+            .Where(e => e.SalonId == salonId.Value)
+            .AsQueryable();
+
+        if (sessionId.HasValue) q = q.Where(e => e.CashSessionId == sessionId.Value);
+
+        var total = await q.CountAsync();
+        var items = await q.OrderByDescending(e => e.CreatedAtUtc)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(e => new
+            {
+                e.Id, e.Description, e.Category, e.Amount,
+                e.PaymentMethod, e.BankAccountId, e.Notes,
+                e.CashSessionId, e.CreatedAtUtc,
+                bankName = e.BankAccount != null ? e.BankAccount.BankName : null,
+            })
+            .ToListAsync();
+
+        return Ok(new { total, page, pageSize, items });
+    }
+
+    // POST api/Pos/expenses
+    [HttpPost("expenses")]
+    public async Task<IActionResult> AddExpense([FromBody] AddExpenseRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        Guid.TryParse(sub, out var userId);
+
+        // Açık oturuma otomatik bağla
+        var openSession = await _db.CashSessions
+            .Where(s => s.SalonId == salonId.Value && s.Status == "Open")
+            .OrderByDescending(s => s.OpenedAtUtc)
+            .Select(s => (Guid?)s.Id)
+            .FirstOrDefaultAsync();
+
+        var expense = new CashExpense
+        {
+            SalonId          = salonId.Value,
+            CashSessionId    = openSession,
+            Description      = req.Description,
+            Category         = req.Category ?? "Genel",
+            Amount           = req.Amount,
+            PaymentMethod    = req.PaymentMethod ?? "cash",
+            BankAccountId    = req.BankAccountId,
+            CreatedByUserId  = userId == Guid.Empty ? null : userId,
+            Notes            = req.Notes,
+        };
+
+        _db.CashExpenses.Add(expense);
+        await _db.SaveChangesAsync();
+        return Ok(new { expense.Id, expense.Amount, expense.Category, expense.CreatedAtUtc });
+    }
+
+    // DELETE api/Pos/expenses/{id}
+    [HttpDelete("expenses/{id:guid}")]
+    public async Task<IActionResult> DeleteExpense(Guid id)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var expense = await _db.CashExpenses
+            .FirstOrDefaultAsync(e => e.Id == id && e.SalonId == salonId.Value);
+        if (expense is null) return NotFound();
+
+        _db.CashExpenses.Remove(expense);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
 }
 
 public record PosCheckoutRequest(
     Guid?   StylistId,
+    Guid?   CustomerId,
     string? CustomerName,
+    Guid?   AppointmentId,
+    Guid?   CashSessionId,
+    Guid?   BankAccountId,
     List<PosItemRequest> Items,
     string? DiscountType,
     decimal DiscountValue,
     string? PaymentMethod,
     decimal CashAmount,
     decimal CardAmount,
+    decimal BankAmount,
     string? Notes
 );
 
 public record PosItemRequest(
     Guid?   ServiceId,
+    Guid?   StockItemId,
+    decimal StaffBonusPct,
     string  Name,
     decimal UnitPrice,
     int     Quantity
 );
 
 public record UpdateCommissionRequest(decimal CommissionRate);
+public record OpenSessionRequest(decimal OpeningBalance, string? Notes);
+public record CloseSessionRequest(decimal? ClosingBalance, string? Notes);
+public record AddExpenseRequest(
+    string  Description,
+    string? Category,
+    decimal Amount,
+    string? PaymentMethod,
+    Guid?   BankAccountId,
+    string? Notes
+);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 import { fmtTime, fmtDateTime, toIstMins, localToUtc } from "@/lib/tz";
@@ -8,11 +9,15 @@ import { fmtTime, fmtDateTime, toIstMins, localToUtc } from "@/lib/tz";
 /* ── Types ─────────────────────────────────────────────────────── */
 type Customer = { id: string; firstName: string; lastName: string };
 type Stylist  = { id: string; fullName: string; branch?: string };
+type Service  = { id: string; name: string; category: string; price: number; durationMinutes: number };
 type Appt     = {
-  id: string; customerName?: string; patientFullName?: string;
-  serviceName?: string; procedureName?: string;
+  id: string;
+  customerId?: string;       stylistId?: string;
+  customerFullName?: string; stylistFullName?: string;
+  customerName?: string;     patientFullName?: string;  // eclinic compat
+  serviceName?: string;      procedureName?: string;
+  doctorFullName?: string;   // eclinic compat
   startAtUtc: string; endAtUtc: string; status: string;
-  stylistName?: string; doctorFullName?: string;
   notes?: string;
 };
 
@@ -22,12 +27,18 @@ const HOUR_END   = 21;
 const HOUR_H     = 64;
 const GRID_H     = (HOUR_END - HOUR_START) * HOUR_H;
 
-const STATUSES: Record<string, { bg: string; color: string; bar: string; label: string }> = {
-  Scheduled:  { bg: "#ede9fe", color: "#7c3aed", bar: "#7c3aed", label: "Planlandı" },
-  Completed:  { bg: "#dcfce7", color: "#166534", bar: "#22c55e", label: "Tamamlandı" },
-  Cancelled:  { bg: "#fee2e2", color: "#991b1b", bar: "#ef4444", label: "İptal" },
-  NoShow:     { bg: "#fef3c7", color: "#92400e", bar: "#f59e0b", label: "Gelmedi" },
+const STATUSES: Record<string, { bg: string; color: string; bar: string; label: string; emoji: string }> = {
+  Scheduled:  { bg: "#ede9fe", color: "#7c3aed", bar: "#7c3aed", label: "Planlandı",      emoji: "📅" },
+  InProgress: { bg: "#dbeafe", color: "#1d4ed8", bar: "#3b82f6", label: "Devam Ediyor",   emoji: "▶" },
+  Late:       { bg: "#fff7ed", color: "#c2410c", bar: "#f97316", label: "Gecikmeli",       emoji: "⏰" },
+  Completed:  { bg: "#dcfce7", color: "#166534", bar: "#22c55e", label: "Tamamlandı",     emoji: "✓" },
+  Cancelled:  { bg: "#fee2e2", color: "#991b1b", bar: "#ef4444", label: "İptal",           emoji: "✕" },
+  NoShow:     { bg: "#fef3c7", color: "#92400e", bar: "#f59e0b", label: "Gelmedi",         emoji: "⚠" },
 };
+
+function isOverdue(a: { status: string; endAtUtc: string }) {
+  return a.status === "Scheduled" && new Date(a.endAtUtc) < new Date();
+}
 
 const DAYS = ["Paz","Pzt","Sal","Çar","Per","Cum","Cmt"];
 const MONTHS = ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"];
@@ -47,11 +58,13 @@ function apptHeight(start: string, end: string) {
 
 /* ── Page ───────────────────────────────────────────────────────── */
 export default function AppointmentsPage() {
+  const router = useRouter();
   const [view,       setView]       = useState<"week"|"day"|"list">("week");
   const [date,       setDate]       = useState(() => new Date());
   const [appts,      setAppts]      = useState<Appt[]>([]);
   const [customers,  setCustomers]  = useState<Customer[]>([]);
   const [stylists,   setStylists]   = useState<Stylist[]>([]);
+  const [services,   setServices]   = useState<Service[]>([]);
   const [loading,    setLoading]    = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterStylist, setFilterStylist] = useState("");
@@ -60,11 +73,16 @@ export default function AppointmentsPage() {
 
   useEffect(() => {
     apiFetch("/Customers?pageSize=200").then(r => r.ok ? r.json() : []).then(setCustomers);
-    apiFetch("/Stylists?activeOnly=true").then(r => r.ok ? r.json() : [])
-      .then((d: Stylist[]) => setStylists(d))
-      .catch(() =>
-        apiFetch("/Doctors?activeOnly=true").then(r => r.ok ? r.json() : []).then(setStylists)
-      );
+    apiFetch("/Pos/init").then(r => r.ok ? r.json() : null).then(d => { if (d?.services) setServices(d.services); });
+    Promise.all([
+      apiFetch("/Stylists?activeOnly=true").then(r => r.ok ? r.json() : []) as Promise<Stylist[]>,
+      apiFetch("/api/auth/me").then(r => r.ok ? r.json() : null),
+    ]).then(([all, me]) => {
+      const filtered = (me?.isSelfOnly && me?.stylistId) ? all.filter((s: Stylist) => s.id === me.stylistId) : all;
+      setStylists(filtered);
+    }).catch(() =>
+      apiFetch("/Doctors?activeOnly=true").then(r => r.ok ? r.json() : []).then(setStylists)
+    );
   }, []);
 
   const weekStart = startOfWeek(date);
@@ -91,8 +109,21 @@ export default function AppointmentsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const aptName = (a: Appt) => a.customerName ?? a.patientFullName ?? "?";
+  const aptName = (a: Appt) => a.customerFullName ?? a.customerName ?? a.patientFullName ?? "?";
   const svcName = (a: Appt) => a.serviceName ?? a.procedureName ?? "";
+  const stName  = (a: Appt) => a.stylistFullName ?? a.doctorFullName ?? "";
+
+  const sendToKasa = async (a: Appt) => {
+    const r = await apiFetch(`/Pos/from-appointment/${a.id}`);
+    const prefill = r.ok ? await r.json() : null;
+    localStorage.setItem("xcut_pos_prefill", JSON.stringify({
+      stylistId:        prefill?.stylistId        ?? a.stylistId,
+      customerId:       prefill?.customerId        ?? a.customerId,
+      customerFullName: prefill?.customerFullName  ?? aptName(a),
+      suggestedItems:   prefill?.suggestedItems    ?? (svcName(a) ? [{ name: svcName(a), unitPrice: 0, quantity: 1 }] : []),
+    }));
+    router.push("/kasa");
+  };
 
   return (
     <AppShell
@@ -141,30 +172,40 @@ export default function AppointmentsPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2,#f8fafc)" }}>
-                {["Müşteri","Hizmet","Stilist","Tarih/Saat","Durum",""].map(h => (
+                {["Müşteri","Hizmet","Stilist","Tarih/Saat","Durum","",""].map(h => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, fontSize: 12, color: "#64748b", borderBottom: "1px solid var(--border,#eaecf0)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {appts.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Randevu bulunamadı</td></tr>
+                <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Randevu bulunamadı</td></tr>
               )}
               {appts.map(a => {
-                const st = STATUSES[a.status] ?? STATUSES.Scheduled;
+                const overdue = isOverdue(a);
+                const st = overdue
+                  ? { ...STATUSES.Scheduled, bg: "#fff7ed", color: "#c2410c", bar: "#f97316", label: "Süresi Geçti", emoji: "⏰" }
+                  : (STATUSES[a.status] ?? STATUSES.Scheduled);
                 return (
-                  <tr key={a.id} style={{ borderBottom: "1px solid var(--border,#f2f4f7)" }}>
+                  <tr key={a.id} style={{ borderBottom: "1px solid var(--border,#f2f4f7)", background: overdue ? "#fffbf5" : undefined }}>
                     <td style={{ padding: "12px 16px", fontWeight: 700 }}>{aptName(a)}</td>
                     <td style={{ padding: "12px 16px", color: "#64748b" }}>{svcName(a)}</td>
-                    <td style={{ padding: "12px 16px", color: "#64748b" }}>{a.stylistName ?? a.doctorFullName}</td>
+                    <td style={{ padding: "12px 16px", color: "#64748b" }}>{stName(a)}</td>
                     <td style={{ padding: "12px 16px", color: "#64748b", whiteSpace: "nowrap" }}>{fmtDateTime(a.startAtUtc)}</td>
                     <td style={{ padding: "12px 16px" }}>
-                      <span className="badge" style={{ background: st.bg, color: st.color }}>{st.label}</span>
+                      <span className="badge" style={{ background: st.bg, color: st.color }}>{st.emoji} {st.label}</span>
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <button onClick={() => { setEditAppt(a); setShowModal(true); }} className="btn btn-ghost" style={{ padding: "6px 12px", minHeight: 34, fontSize: 12 }}>
                         Düzenle
                       </button>
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      {a.status === "Scheduled" && (
+                        <button onClick={() => sendToKasa(a)} style={{ padding: "6px 12px", minHeight: 34, fontSize: 12, borderRadius: 8, border: "1px solid #e9d5ff", background: "#faf5ff", color: "#7c3aed", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                          🧾 Kasaya Aktar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -208,7 +249,8 @@ export default function AppointmentsPage() {
                 <div key={i} style={{ position: "absolute", left: 0, right: 0, top: i * HOUR_H, height: HOUR_H, borderTop: "1px solid #f2f4f7" }} />
               ))}
               {appts.map(a => {
-                const st = STATUSES[a.status] ?? STATUSES.Scheduled;
+                const overdue = isOverdue(a);
+                const st = overdue ? { ...STATUSES.Scheduled, bg: "#fff7ed", color: "#c2410c", bar: "#f97316" } : (STATUSES[a.status] ?? STATUSES.Scheduled);
                 const top = apptTop(a.startAtUtc);
                 const h   = apptHeight(a.startAtUtc, a.endAtUtc);
                 return (
@@ -219,7 +261,7 @@ export default function AppointmentsPage() {
                     cursor: "pointer", zIndex: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
                   }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: st.color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {fmtTime(a.startAtUtc)} · {aptName(a)}
+                      {overdue && "⏰ "}{fmtTime(a.startAtUtc)} · {aptName(a)}
                     </div>
                     {h >= 36 && <div style={{ fontSize: 11, color: st.color, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{svcName(a)}</div>}
                   </div>
@@ -295,6 +337,8 @@ export default function AppointmentsPage() {
           appt={editAppt}
           customers={customers}
           stylists={stylists}
+          services={services}
+          appts={appts}
           onClose={() => setShowModal(false)}
           onSaved={() => { setShowModal(false); load(); }}
         />
@@ -305,11 +349,13 @@ export default function AppointmentsPage() {
 
 /* ── Appointment Modal ─────────────────────────────────────────── */
 function ApptModal({
-  appt, customers, stylists, onClose, onSaved,
+  appt, customers, stylists, services, appts, onClose, onSaved,
 }: {
   appt: Appt | null;
   customers: Customer[];
   stylists: Stylist[];
+  services: Service[];
+  appts: Appt[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -324,15 +370,28 @@ function ApptModal({
     return `${loc.getUTCFullYear()}-${p(loc.getUTCMonth()+1)}-${p(loc.getUTCDate())}T${p(loc.getUTCHours())}:${p(loc.getUTCMinutes())}`;
   }
 
-  const [customerId, setCustomerId]   = useState(appt ? (appt as { customerId?: string }).customerId ?? "" : "");
-  const [stylistId,  setStylistId]    = useState(appt ? (appt as { stylistId?: string; doctorId?: string }).stylistId ?? (appt as { doctorId?: string }).doctorId ?? "" : "");
-  const [service,    setService]      = useState(appt?.serviceName ?? appt?.procedureName ?? "");
-  const [start,      setStart]        = useState(appt?.startAtUtc ? toLocalStr(appt.startAtUtc) : "");
-  const [end,        setEnd]          = useState(appt?.endAtUtc ? toLocalStr(appt.endAtUtc) : "");
-  const [status,     setStatus]       = useState(appt?.status ?? "Scheduled");
-  const [notes,      setNotes]        = useState(appt?.notes ?? "");
-  const [saving,     setSaving]       = useState(false);
-  const [error,      setError]        = useState("");
+  const [customerId, setCustomerId] = useState(appt?.customerId ?? "");
+  const [stylistId,  setStylistId]  = useState(appt?.stylistId ?? "");
+  const [service,    setService]    = useState(appt?.serviceName ?? appt?.procedureName ?? "");
+  const [start,      setStart]      = useState(appt?.startAtUtc ? toLocalStr(appt.startAtUtc) : "");
+  const [end,        setEnd]        = useState(appt?.endAtUtc ? toLocalStr(appt.endAtUtc) : "");
+  const [notes,      setNotes]      = useState(appt?.notes ?? "");
+  const [saving,     setSaving]     = useState(false);
+  const [acting,     setActing]     = useState(false);
+  const [error,      setError]      = useState("");
+
+  const currentStatus = appt?.status ?? "Scheduled";
+  const isTerminal    = ["Completed", "Cancelled", "NoShow"].includes(currentStatus);
+
+  /* subsequent Scheduled/Late appts for same stylist, after this appt's start */
+  const nextAppts = isEdit && appt?.stylistId
+    ? appts.filter(a =>
+        a.id !== appt.id &&
+        a.stylistId === appt.stylistId &&
+        (a.status === "Scheduled" || a.status === "Late") &&
+        new Date(a.startAtUtc) >= new Date(appt.startAtUtc)
+      ).sort((a, b) => new Date(a.startAtUtc).getTime() - new Date(b.startAtUtc).getTime())
+    : [];
 
   const save = async () => {
     if (!customerId) { setError("Müşteri seçiniz."); return; }
@@ -342,7 +401,7 @@ function ApptModal({
     try {
       const body = {
         customerId, stylistId, serviceName: service, notes,
-        status,
+        status: currentStatus,
         startAtUtc: localToUtc(start),
         endAtUtc:   end ? localToUtc(end) : localToUtc(start),
       };
@@ -354,11 +413,46 @@ function ApptModal({
     } finally { setSaving(false); }
   };
 
-  const s: React.CSSProperties = {
+  const quickStatus = async (s: string) => {
+    if (!appt?.id) return;
+    setActing(true);
+    const res = await apiFetch(`/Appointments/${appt.id}/status`, { method: "PATCH", body: JSON.stringify({ status: s }) });
+    setActing(false);
+    if (res.ok) onSaved();
+    else { const d = await res.json().catch(() => ({})); setError(d.message ?? "Durum güncellenemedi"); }
+  };
+
+  const extend = async (mins: number) => {
+    if (!appt?.id) return;
+    setActing(true);
+    const res = await apiFetch(`/Appointments/${appt.id}/extend`, { method: "PATCH", body: JSON.stringify({ minutes: mins }) });
+    setActing(false);
+    if (res.ok) onSaved();
+    else setError("Süre uzatılamadı");
+  };
+
+  const shiftSubsequent = async (mins: number) => {
+    if (!appt?.stylistId || !appt?.startAtUtc) return;
+    if (!confirm(`Bu stilistin ${nextAppts.length} sonraki randevusu ${mins} dk kaydırılacak. Onaylıyor musunuz?`)) return;
+    setActing(true);
+    const res = await apiFetch("/Appointments/shift-stylist", {
+      method: "POST",
+      body: JSON.stringify({ stylistId: appt.stylistId, afterUtc: appt.startAtUtc, shiftMinutes: mins }),
+    });
+    setActing(false);
+    if (res.ok) { const d = await res.json(); onSaved(); alert(`${d.shifted} randevu ${mins} dk kaydırıldı.`); }
+    else setError("Randevular kaydırılamadı");
+  };
+
+  const inp: React.CSSProperties = {
     width: "100%", padding: "11px 14px", borderRadius: 10, minHeight: 44,
     border: "1px solid var(--border,#d0d5dd)", fontSize: 14,
     background: "var(--surface,#fff)", color: "var(--text,#101828)",
-    WebkitAppearance: "none",
+    WebkitAppearance: "none", boxSizing: "border-box",
+  };
+  const lbl: React.CSSProperties = {
+    fontSize: 12, fontWeight: 700, color: "#344054", display: "block",
+    marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px",
   };
 
   return (
@@ -366,61 +460,149 @@ function ApptModal({
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 300, backdropFilter: "blur(3px)" }} />
       <div style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-        width: "min(480px, 94vw)", zIndex: 301, maxHeight: "92vh", overflowY: "auto",
+        width: "min(500px, 96vw)", zIndex: 301, maxHeight: "92vh", overflowY: "auto",
         background: "var(--surface,#fff)", borderRadius: 20,
         boxShadow: "0 24px 64px rgba(15,23,42,0.22)", border: "1px solid var(--border,#eaecf0)",
       }}>
+        {/* Header */}
         <div style={{ padding: "18px 20px", borderBottom: "1px solid var(--border,#eaecf0)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontWeight: 800, fontSize: 17 }}>{isEdit ? "Randevu Düzenle" : "Yeni Randevu"}</div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}>×</button>
         </div>
+
+        {/* ── Quick status bar (edit only) ── */}
+        {isEdit && (
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border,#eaecf0)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Hızlı Durum</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {([
+                ["InProgress", "▶ Devam Ediyor", "#dbeafe", "#1d4ed8"],
+                ["Late",       "⏰ Gecikmeli",   "#fff7ed", "#c2410c"],
+                ["Completed",  "✓ Tamamlandı",  "#dcfce7", "#166534"],
+                ["NoShow",     "⚠ Gelmedi",      "#fef3c7", "#92400e"],
+                ["Cancelled",  "✕ İptal",         "#fee2e2", "#991b1b"],
+              ] as [string, string, string, string][]).map(([st, lbl2, bg, color]) => (
+                <button
+                  key={st}
+                  disabled={acting || currentStatus === st}
+                  onClick={() => quickStatus(st)}
+                  style={{
+                    padding: "6px 12px", borderRadius: 8, border: `1px solid ${bg === "#fff" ? "#e2e8f0" : bg}`,
+                    background: currentStatus === st ? bg : "#fff",
+                    color: currentStatus === st ? color : "#64748b",
+                    fontWeight: currentStatus === st ? 800 : 600, fontSize: 12, cursor: "pointer",
+                    opacity: acting ? 0.6 : 1,
+                  }}
+                >{lbl2}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Gecikme araçları (edit, non-terminal) ── */}
+        {isEdit && !isTerminal && (
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border,#eaecf0)", background: "#fffbf5" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>Gecikme Araçları</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>Süre uzat:</span>
+              {[15, 30, 45].map(m => (
+                <button key={m} disabled={acting} onClick={() => extend(m)} style={{
+                  padding: "5px 11px", borderRadius: 8, border: "1px solid #fed7aa",
+                  background: "#fff7ed", color: "#c2410c", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                }}>+{m}dk</button>
+              ))}
+              {nextAppts.length > 0 && (
+                <>
+                  <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600, marginLeft: 4 }}>
+                    Sonraki {nextAppts.length} randevuyu kaydır:
+                  </span>
+                  {[15, 30].map(m => (
+                    <button key={m} disabled={acting} onClick={() => shiftSubsequent(m)} style={{
+                      padding: "5px 11px", borderRadius: 8, border: "1px solid #c7d2fe",
+                      background: "#eef2ff", color: "#4338ca", fontWeight: 700, fontSize: 12, cursor: "pointer",
+                    }}>+{m}dk ↓</button>
+                  ))}
+                </>
+              )}
+            </div>
+            {nextAppts.length > 0 && (
+              <div style={{ marginTop: 6, fontSize: 11, color: "#94a3b8" }}>
+                {nextAppts.slice(0, 3).map(a => `${fmtTime(a.startAtUtc)} ${a.customerFullName ?? a.customerName ?? ""}`).join(" · ")}
+                {nextAppts.length > 3 && ` +${nextAppts.length - 3} randevu daha`}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Form ── */}
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Müşteri *</label>
-            <select value={customerId} onChange={e => setCustomerId(e.target.value)} style={s}>
+            <label style={lbl}>Müşteri *</label>
+            <select value={customerId} onChange={e => setCustomerId(e.target.value)} style={inp}>
               <option value="">Müşteri seçiniz...</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Stilist</label>
-            <select value={stylistId} onChange={e => setStylistId(e.target.value)} style={s}>
+            <label style={lbl}>Stilist</label>
+            <select value={stylistId} onChange={e => setStylistId(e.target.value)} style={inp}>
               <option value="">Stilist seçiniz...</option>
               {stylists.map(st => <option key={st.id} value={st.id}>{st.fullName}</option>)}
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Hizmet *</label>
-            <input value={service} onChange={e => setService(e.target.value)} placeholder="Saç kesimi, boya, bakım..." style={s} />
-          </div>
-          <div className="form-grid">
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Başlangıç *</label>
-              <input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} style={s} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Bitiş</label>
-              <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} style={s} />
-            </div>
-          </div>
-          {isEdit && (
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Durum</label>
-              <select value={status} onChange={e => setStatus(e.target.value)} style={s}>
-                {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            <label style={lbl}>Hizmet *</label>
+            {services.length > 0 ? (
+              <select
+                value={service}
+                onChange={e => {
+                  setService(e.target.value);
+                  const svc = services.find(x => x.name === e.target.value);
+                  if (svc && svc.durationMinutes > 0 && start) {
+                    const startMs = new Date(start).getTime();
+                    const endMs   = startMs + svc.durationMinutes * 60 * 1000;
+                    const d = new Date(endMs);
+                    const p = (n: number) => String(n).padStart(2, "0");
+                    setEnd(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`);
+                  }
+                }}
+                style={inp}
+              >
+                <option value="">Hizmet seçiniz...</option>
+                {Array.from(new Set(services.map(x => x.category))).map(cat => (
+                  <optgroup key={cat} label={cat}>
+                    {services.filter(x => x.category === cat).map(svc => (
+                      <option key={svc.id} value={svc.name}>
+                        {svc.name}{svc.price > 0 ? ` — ₺${svc.price.toLocaleString("tr-TR")}` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
-            </div>
-          )}
+            ) : (
+              <input value={service} onChange={e => setService(e.target.value)} placeholder="Saç kesimi, boya, bakım..." style={inp} />
+            )}
+          </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.5px" }}>Notlar</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...s, resize: "vertical" }} placeholder="İsteğe bağlı not..." />
+            <label style={lbl}>Başlangıç *</label>
+            <input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <label style={lbl}>Bitiş</label>
+            <input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <label style={lbl}>Notlar</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inp, resize: "vertical" }} placeholder="İsteğe bağlı not..." />
           </div>
           {error && <div style={{ padding: "10px 14px", borderRadius: 10, background: "#fef2f2", color: "#b42318", fontSize: 13, fontWeight: 600 }}>⚠ {error}</div>}
           <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-            <button onClick={onClose} className="btn btn-ghost" style={{ flex: 1 }}>İptal</button>
-            <button onClick={save} disabled={saving} className="btn btn-primary" style={{ flex: 2, opacity: saving ? 0.7 : 1 }}>
-              {saving ? "Kaydediliyor..." : isEdit ? "Güncelle" : "Randevu Oluştur"}
-            </button>
+            <button onClick={onClose} className="btn btn-ghost" style={{ flex: 1 }}>Kapat</button>
+            {!isTerminal && (
+              <button onClick={save} disabled={saving} className="btn btn-primary" style={{ flex: 2, opacity: saving ? 0.7 : 1 }}>
+                {saving ? "Kaydediliyor..." : isEdit ? "Güncelle" : "Randevu Oluştur"}
+              </button>
+            )}
           </div>
         </div>
       </div>

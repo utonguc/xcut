@@ -42,6 +42,7 @@ export default function CustomersPage() {
   const [showModal,  setShowModal]  = useState(false);
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [boyaCustomer, setBoyaCustomer] = useState<Customer | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,6 +153,7 @@ export default function CustomersPage() {
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => { setEditCustomer(c); setShowModal(true); }} className="btn btn-ghost" style={{ padding: "6px 12px", minHeight: 34, fontSize: 12 }}>Düzenle</button>
+                        <button onClick={() => setBoyaCustomer(c)} style={{ padding: "6px 10px", minHeight: 34, borderRadius: 8, border: "1px solid #e9d5ff", background: "#faf5ff", color: "#7c3aed", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>🎨 Boya</button>
                         <button onClick={() => del(c.id)} style={{ padding: "6px 10px", minHeight: 34, borderRadius: 8, border: "1px solid #fee2e2", background: "#fef2f2", color: "#ef4444", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sil</button>
                       </div>
                     </td>
@@ -205,6 +207,13 @@ export default function CustomersPage() {
         <CsvImportModal
           onClose={() => setShowImport(false)}
           onDone={() => { setShowImport(false); load(); }}
+        />
+      )}
+
+      {boyaCustomer && (
+        <BojaKartModal
+          customer={boyaCustomer}
+          onClose={() => setBoyaCustomer(null)}
         />
       )}
     </AppShell>
@@ -287,6 +296,230 @@ function CustomerModal({ customer, onClose, onSaved }: { customer: Customer | nu
               {saving ? "Kaydediliyor..." : isEdit ? "Güncelle" : "Kaydet"}
             </button>
           </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── Boya Kartelası Modal ────────────────────────────────────────── */
+type ColorFormula = {
+  id: string; customerId: string; stylistId?: string; formulaName: string;
+  brand?: string; colorsJson?: string; developer?: string; developerVolume?: string;
+  processMinutes?: number; notes?: string; createdAtUtc: string; updatedAtUtc: string;
+  stylistName?: string;
+};
+type ColorEntry = { name: string; amount: string };
+
+function BojaKartModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+  const [formulas,  setFormulas]  = useState<ColorFormula[]>([]);
+  const [loading,   setLoading]   = useState(false);
+  const [showForm,  setShowForm]  = useState(false);
+  const [editing,   setEditing]   = useState<ColorFormula | null>(null);
+
+  /* form state */
+  const [formulaName,     setFormulaName]     = useState("");
+  const [brand,           setBrand]           = useState("");
+  const [colors,          setColors]          = useState<ColorEntry[]>([{ name: "", amount: "" }]);
+  const [developer,       setDeveloper]       = useState("");
+  const [developerVolume, setDeveloperVolume] = useState("");
+  const [processMinutes,  setProcessMinutes]  = useState("");
+  const [notes,           setNotes]           = useState("");
+  const [saving,          setSaving]          = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await apiFetch(`/ColorFormula?customerId=${customer.id}`);
+    if (r.ok) setFormulas(await r.json());
+    setLoading(false);
+  }, [customer.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openForm = (f?: ColorFormula) => {
+    setEditing(f ?? null);
+    setFormulaName(f?.formulaName ?? "");
+    setBrand(f?.brand ?? "");
+    setColors(f?.colorsJson ? JSON.parse(f.colorsJson) : [{ name: "", amount: "" }]);
+    setDeveloper(f?.developer ?? "");
+    setDeveloperVolume(f?.developerVolume ?? "");
+    setProcessMinutes(f?.processMinutes?.toString() ?? "");
+    setNotes(f?.notes ?? "");
+    setShowForm(true);
+  };
+
+  const closeForm = () => { setShowForm(false); setEditing(null); };
+
+  const addColor = () => setColors(p => [...p, { name: "", amount: "" }]);
+  const removeColor = (i: number) => setColors(p => p.filter((_, j) => j !== i));
+  const updateColor = (i: number, k: "name" | "amount", v: string) =>
+    setColors(p => p.map((c, j) => j === i ? { ...c, [k]: v } : c));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formulaName) return;
+    setSaving(true);
+    const validColors = colors.filter(c => c.name || c.amount);
+    const body = {
+      customerId:      customer.id,
+      formulaName,
+      brand:           brand || null,
+      colorsJson:      validColors.length ? JSON.stringify(validColors) : null,
+      developer:       developer || null,
+      developerVolume: developerVolume || null,
+      processMinutes:  processMinutes ? parseInt(processMinutes) : null,
+      notes:           notes || null,
+    };
+    const r = editing
+      ? await apiFetch(`/ColorFormula/${editing.id}`, { method: "PUT", body: JSON.stringify(body) })
+      : await apiFetch("/ColorFormula", { method: "POST", body: JSON.stringify(body) });
+    setSaving(false);
+    if (r.ok) { closeForm(); load(); }
+    else alert("Kayıt hatası.");
+  };
+
+  const del = async (id: string) => {
+    if (!confirm("Bu formülü silmek istediğinizden emin misiniz?")) return;
+    await apiFetch(`/ColorFormula/${id}`, { method: "DELETE" });
+    load();
+  };
+
+  const fs: React.CSSProperties = { width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 300, backdropFilter: "blur(3px)" }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+        width: "min(700px, 96vw)", zIndex: 301, maxHeight: "92vh", overflowY: "auto",
+        background: "var(--surface,#fff)", borderRadius: 20,
+        boxShadow: "0 24px 64px rgba(15,23,42,0.22)", border: "1px solid var(--border,#eaecf0)",
+      }}>
+        <div style={{ padding: "18px 20px", borderBottom: "1px solid #eaecf0", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 17 }}>🎨 Boya Kartelası</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{customer.firstName} {customer.lastName}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {!showForm && (
+              <button onClick={() => openForm()} style={{ padding: "7px 14px", borderRadius: 9, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                + Formül Ekle
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#94a3b8", lineHeight: 1 }}>×</button>
+          </div>
+        </div>
+
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+
+          {/* Form */}
+          {showForm && (
+            <form onSubmit={submit} style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#7c3aed" }}>{editing ? "Formülü Düzenle" : "Yeni Formül"}</div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Formül Adı *</label>
+                  <input value={formulaName} onChange={e => setFormulaName(e.target.value)} required style={fs} placeholder="örn. Karamel Balayage" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Marka</label>
+                  <input value={brand} onChange={e => setBrand(e.target.value)} style={fs} placeholder="Wella, Loreal..." />
+                </div>
+              </div>
+
+              {/* Color swatches */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>Renkler / Ton Numaraları</label>
+                  <button type="button" onClick={addColor} style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "none", border: "none", cursor: "pointer" }}>+ Renk Ekle</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {colors.map((c, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input value={c.name} onChange={e => updateColor(i, "name", e.target.value)} style={{ ...fs, flex: 2 }} placeholder="Ton no (örn. 7.1)" />
+                      <input value={c.amount} onChange={e => updateColor(i, "amount", e.target.value)} style={{ ...fs, flex: 1 }} placeholder="Miktar (50g)" />
+                      {colors.length > 1 && (
+                        <button type="button" onClick={() => removeColor(i)} style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: 16, flexShrink: 0 }}>×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Oksidan</label>
+                  <input value={developer} onChange={e => setDeveloper(e.target.value)} style={fs} placeholder="örn. Wella Welloxon" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Oksidan Hacim</label>
+                  <input value={developerVolume} onChange={e => setDeveloperVolume(e.target.value)} style={fs} placeholder="örn. 20 vol" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Bekleme (dk)</label>
+                  <input type="number" min="0" value={processMinutes} onChange={e => setProcessMinutes(e.target.value)} style={fs} placeholder="35" />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>Notlar</label>
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...fs, resize: "vertical" }} placeholder="Uygulama notları, sonuç..." />
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" onClick={closeForm} style={{ padding: "8px 18px", borderRadius: 9, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>İptal</button>
+                <button type="submit" disabled={saving} style={{ padding: "8px 22px", borderRadius: 9, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  {saving ? "Kaydediliyor..." : editing ? "Güncelle" : "Kaydet"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Formula list */}
+          {loading ? (
+            <div style={{ textAlign: "center", color: "#94a3b8", padding: 32 }}>Yükleniyor...</div>
+          ) : formulas.length === 0 ? (
+            <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 14 }}>
+              Henüz formül kaydı yok. İlk formülü ekleyin.
+            </div>
+          ) : (
+            formulas.map(f => {
+              const parsedColors: ColorEntry[] = f.colorsJson ? JSON.parse(f.colorsJson) : [];
+              return (
+                <div key={f.id} style={{ background: "#fff", borderRadius: 14, border: "1px solid #eaecf0", padding: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>{f.formulaName}</div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{new Date(f.createdAtUtc).toLocaleDateString("tr-TR")} {f.stylistName ? `· ${f.stylistName}` : ""}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => openForm(f)} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Düzenle</button>
+                      <button onClick={() => del(f.id)} style={{ padding: "5px 8px", borderRadius: 8, border: "none", background: "none", color: "#dc2626", fontSize: 14, cursor: "pointer" }}>×</button>
+                    </div>
+                  </div>
+
+                  {(f.brand || parsedColors.length > 0) && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                      {f.brand && <span style={{ fontSize: 12, padding: "2px 10px", borderRadius: 999, background: "#ede9fe", color: "#6d28d9", fontWeight: 700 }}>{f.brand}</span>}
+                      {parsedColors.map((c, i) => (
+                        <span key={i} style={{ fontSize: 12, padding: "2px 10px", borderRadius: 999, background: "#faf5ff", border: "1px solid #e9d5ff", color: "#7c3aed", fontWeight: 700 }}>
+                          {c.name}{c.amount ? ` · ${c.amount}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: 20, fontSize: 12, color: "#64748b", flexWrap: "wrap" }}>
+                    {f.developer && <span>Oksidan: <strong>{f.developer}</strong></span>}
+                    {f.developerVolume && <span>Hacim: <strong>{f.developerVolume}</strong></span>}
+                    {f.processMinutes && <span>Süre: <strong>{f.processMinutes} dk</strong></span>}
+                  </div>
+                  {f.notes && <div style={{ marginTop: 8, fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 8, padding: "6px 10px" }}>{f.notes}</div>}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     </>

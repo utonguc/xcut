@@ -59,12 +59,16 @@ export default function TakvimPage() {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    apiFetch("/Stylists?activeOnly=true")
-      .then(r => r.ok ? r.json() : [])
-      .then((d: Stylist[]) => {
-        setStylists(d);
-        setSelStylists(new Set(d.slice(0, 6).map(x => x.id)));
-      });
+    Promise.all([
+      apiFetch("/Stylists?activeOnly=true").then(r => r.ok ? r.json() : []) as Promise<Stylist[]>,
+      apiFetch("/api/auth/me").then(r => r.ok ? r.json() : null) as Promise<{ isSelfOnly?: boolean; stylistId?: string } | null>,
+    ]).then(([allStylists, me]) => {
+      const filtered = (me?.isSelfOnly && me?.stylistId)
+        ? allStylists.filter(s => s.id === me.stylistId)
+        : allStylists;
+      setStylists(filtered);
+      setSelStylists(new Set(filtered.slice(0, 6).map(x => x.id)));
+    });
   }, []);
 
   const loadDay = useCallback(async () => {

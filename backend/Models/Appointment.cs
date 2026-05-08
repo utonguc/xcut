@@ -19,6 +19,7 @@ public class Appointment
     public string? Notes { get; set; }
     // Scheduled | Completed | Cancelled | NoShow
     public string Status { get; set; } = "Scheduled";
+    public Guid?  PosTransactionId { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }

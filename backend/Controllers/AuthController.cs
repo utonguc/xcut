@@ -1,6 +1,7 @@
 // Controllers/AuthController.cs
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
@@ -120,17 +121,65 @@ public class AuthController : ControllerBase
             .Select(x => x.ModuleCode)
             .ToListAsync();
 
+        // Permission modules from assigned groups
+        var groups = await _db.UserPermissionGroups
+            .Where(x => x.UserId == user.Id)
+            .Include(x => x.Group)
+            .Select(x => x.Group!)
+            .ToListAsync();
+
+        List<string> permissionModules;
+        bool isSelfOnly = false;
+
+        if (groups.Count > 0)
+        {
+            var allModules = new HashSet<string>();
+            foreach (var g in groups)
+            {
+                var mods = JsonSerializer.Deserialize<List<string>>(g.AllowedModules) ?? new();
+                foreach (var m in mods) allModules.Add(m);
+                if (g.IsSelfOnly) isSelfOnly = true;
+            }
+            permissionModules = allModules.ToList();
+        }
+        else
+        {
+            // Default by role
+            permissionModules = (user.Role?.Name ?? "") switch
+            {
+                "Stilist"    => new() { "appointments", "tasks" },
+                "Kasiyer"    => new() { "kasa", "finance", "reports" },
+                "Resepsiyon" => new() { "appointments", "customers", "services", "tasks" },
+                _            => new() // empty = all modules for Admin
+            };
+            isSelfOnly = user.Role?.Name == "Stilist";
+        }
+
+        // Link user to stylist by email for isSelfOnly filtering
+        string? linkedStylistId = null;
+        if (isSelfOnly && !string.IsNullOrWhiteSpace(user.Email))
+        {
+            var stylist = await _db.Stylists
+                .Where(s => s.SalonId == user.SalonId && s.Email != null && s.Email.ToLower() == user.Email.ToLower())
+                .Select(s => s.Id)
+                .FirstOrDefaultAsync();
+            if (stylist != default) linkedStylistId = stylist.ToString();
+        }
+
         return Ok(new MeResponse
         {
-            UserId          = user.Id.ToString(),
-            SalonId         = user.SalonId.ToString(),
-            SalonName       = user.Salon.Name,
-            UserName        = user.UserName,
-            FullName        = user.FullName,
-            Email           = user.Email,
-            Role            = user.Role?.Name,
-            ActiveModules   = activeModules,
-            ProfilePhotoUrl = user.ProfilePhotoUrl,
+            UserId             = user.Id.ToString(),
+            SalonId            = user.SalonId.ToString(),
+            SalonName          = user.Salon.Name,
+            UserName           = user.UserName,
+            FullName           = user.FullName,
+            Email              = user.Email,
+            Role               = user.Role?.Name,
+            ActiveModules      = activeModules,
+            PermissionModules  = permissionModules,
+            IsSelfOnly         = isSelfOnly,
+            StylistId          = linkedStylistId,
+            ProfilePhotoUrl    = user.ProfilePhotoUrl,
         });
     }
 

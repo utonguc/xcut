@@ -45,6 +45,13 @@ public class AppDbContext : DbContext
     public DbSet<SupportTicketReply> SupportTicketReplies => Set<SupportTicketReply>();
     public DbSet<PosTransaction>     PosTransactions     => Set<PosTransaction>();
     public DbSet<PosTransactionItem> PosTransactionItems => Set<PosTransactionItem>();
+    public DbSet<BankAccount>        BankAccounts        => Set<BankAccount>();
+    public DbSet<CashSession>        CashSessions        => Set<CashSession>();
+    public DbSet<CashExpense>        CashExpenses        => Set<CashExpense>();
+    public DbSet<ColorFormula>        ColorFormulas        => Set<ColorFormula>();
+    public DbSet<PermissionGroup>     PermissionGroups     => Set<PermissionGroup>();
+    public DbSet<UserPermissionGroup> UserPermissionGroups => Set<UserPermissionGroup>();
+    public DbSet<StylistAttendance>   StylistAttendances   => Set<StylistAttendance>();
 
     protected override void OnModelCreating(ModelBuilder m)
     {
@@ -540,6 +547,84 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.Email, x.SalonId }).IsUnique();
             e.HasIndex(x => x.CustomerId);
+        });
+
+        // ── BankAccount ───────────────────────────────────────────────────────
+        m.Entity<BankAccount>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.BankName).HasMaxLength(100).IsRequired();
+            e.Property(x => x.AccountName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.IBAN).HasMaxLength(34);
+            e.HasIndex(x => x.SalonId);
+        });
+
+        // ── CashSession ───────────────────────────────────────────────────────
+        m.Entity<CashSession>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OpeningBalance).HasColumnType("numeric(18,2)");
+            e.Property(x => x.ClosingBalance).HasColumnType("numeric(18,2)");
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.HasOne(x => x.OpenedBy).WithMany()
+                .HasForeignKey(x => x.OpenedByUserId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ClosedBy).WithMany()
+                .HasForeignKey(x => x.ClosedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany(x => x.Transactions).WithOne(x => x.Session)
+                .HasForeignKey(x => x.CashSessionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasMany(x => x.Expenses).WithOne(x => x.Session)
+                .HasForeignKey(x => x.CashSessionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => new { x.SalonId, x.Status });
+        });
+
+        // ── CashExpense ───────────────────────────────────────────────────────
+        m.Entity<CashExpense>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Description).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Category).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Amount).HasColumnType("numeric(18,2)");
+            e.Property(x => x.PaymentMethod).HasMaxLength(20).IsRequired();
+            e.HasOne(x => x.BankAccount).WithMany()
+                .HasForeignKey(x => x.BankAccountId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.CreatedBy).WithMany()
+                .HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.SalonId);
+            e.HasIndex(x => new { x.SalonId, x.CreatedAtUtc });
+        });
+
+        // ── ColorFormula ──────────────────────────────────────────────────────
+        m.Entity<ColorFormula>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.FormulaName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Brand).HasMaxLength(100);
+            e.Property(x => x.Developer).HasMaxLength(100);
+            e.Property(x => x.DeveloperVolume).HasMaxLength(20);
+            e.HasOne(x => x.Customer).WithMany()
+                .HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Stylist).WithMany()
+                .HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.CustomerId);
+            e.HasIndex(x => x.SalonId);
+        });
+
+        // ── PermissionGroup ───────────────────────────────────────────────────
+        m.Entity<PermissionGroup>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.AllowedModules).HasDefaultValue("[]");
+            e.HasIndex(x => x.SalonId);
+        });
+
+        m.Entity<UserPermissionGroup>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.PermissionGroupId });
+            e.HasOne(x => x.User).WithMany()
+                .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Group).WithMany(g => g.UserGroups)
+                .HasForeignKey(x => x.PermissionGroupId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

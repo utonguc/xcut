@@ -7,8 +7,10 @@ import { apiFetch } from "@/lib/api";
 /* ── Types ─────────────────────────────────────────────────────── */
 type StockItem = {
   id: string; name: string; category?: string; unit?: string;
-  quantity: number; minQuantity?: number; price?: number;
-  expiryDate?: string; supplier?: string; notes?: string;
+  quantity: number; minQuantity?: number;
+  unitCost?: number; salePrice?: number; staffBonusPct?: number;
+  expiresAtUtc?: string; supplier?: string;
+  isLow?: boolean; isExpired?: boolean; expiresSoon?: boolean;
 };
 type Movement = {
   id: string; type: "In"|"Out"|"Adjustment";
@@ -122,8 +124,8 @@ export default function StockPage() {
                   <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Ürün bulunamadı</td></tr>
                 )}
                 {items.map(item => {
-                  const isLow = item.minQuantity !== undefined && item.quantity <= item.minQuantity;
-                  const isExpired = item.expiryDate && new Date(item.expiryDate) < new Date();
+                  const isLow = item.isLow ?? (item.minQuantity !== undefined && item.quantity <= item.minQuantity);
+                  const isExpired = item.isExpired ?? (item.expiresAtUtc != null && new Date(item.expiresAtUtc) < new Date());
                   const isActive = selected?.id === item.id;
                   return (
                     <tr key={item.id}
@@ -135,7 +137,7 @@ export default function StockPage() {
                         {item.quantity} {item.unit}
                       </td>
                       <td style={{ padding: "12px 14px", color: "#64748b" }}>{item.minQuantity ?? "—"}</td>
-                      <td style={{ padding: "12px 14px", color: "#64748b" }}>{item.price ? `₺${item.price}` : "—"}</td>
+                      <td style={{ padding: "12px 14px", color: "#64748b" }}>{item.salePrice ? `₺${item.salePrice}` : item.unitCost ? `₺${item.unitCost}` : "—"}</td>
                       <td style={{ padding: "12px 14px" }}>
                         {isExpired
                           ? <span className="badge" style={{ background: "#fee2e2", color: "#991b1b" }}>Süresi Dolmuş</span>
@@ -167,8 +169,10 @@ export default function StockPage() {
                 ["Kategori", selected.category ?? "—"],
                 ["Stok", `${selected.quantity} ${selected.unit ?? ""}`],
                 ["Min. Stok", selected.minQuantity ?? "—"],
-                ["Birim Fiyat", selected.price ? `₺${selected.price}` : "—"],
-                ["Son Kullanma", selected.expiryDate?.slice(0, 10) ?? "—"],
+                ["Alış Fiyatı", selected.unitCost ? `₺${selected.unitCost}` : "—"],
+                ["Satış Fiyatı", selected.salePrice ? `₺${selected.salePrice}` : "—"],
+                ["Personel Primi", selected.staffBonusPct ? `%${selected.staffBonusPct}` : "—"],
+                ["Son Kullanma", selected.expiresAtUtc?.slice(0, 10) ?? "—"],
                 ["Tedarikçi", selected.supplier ?? "—"],
               ].map(([k, v]) => (
                 <div key={k as string} style={{ display: "flex", justifyContent: "space-between" }}>
@@ -251,21 +255,23 @@ function QuickMovement({ stockId, onDone }: { stockId: string; onDone: () => voi
 function StockModal({ item, categories, onClose, onSaved }: { item: StockItem | null; categories: string[]; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!item?.id;
   const [form, setForm] = useState({
-    name:        item?.name ?? "",
-    category:    item?.category ?? "",
-    unit:        item?.unit ?? "adet",
-    quantity:    item?.quantity ?? 0,
-    minQuantity: item?.minQuantity ?? 0,
-    price:       item?.price ?? 0,
-    expiryDate:  item?.expiryDate?.slice(0, 10) ?? "",
-    supplier:    item?.supplier ?? "",
-    notes:       item?.notes ?? "",
+    name:         item?.name ?? "",
+    category:     item?.category ?? "",
+    unit:         item?.unit ?? "adet",
+    quantity:     item?.quantity ?? 0,
+    minQuantity:  item?.minQuantity ?? 0,
+    unitCost:     item?.unitCost ?? 0,
+    salePrice:    item?.salePrice ?? 0,
+    staffBonusPct: item?.staffBonusPct ?? 0,
+    expiresAtUtc: item?.expiresAtUtc?.slice(0, 10) ?? "",
+    supplier:     item?.supplier ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState("");
 
+  const NUMERIC = ["quantity","minQuantity","unitCost","salePrice","staffBonusPct"];
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(prev => ({ ...prev, [k]: ["quantity","minQuantity","price"].includes(k) ? Number(e.target.value) : e.target.value }));
+    setForm(prev => ({ ...prev, [k]: NUMERIC.includes(k) ? Number(e.target.value) : e.target.value }));
 
   const save = async () => {
     if (!form.name) { setError("Ürün adı zorunludur."); return; }
@@ -300,11 +306,12 @@ function StockModal({ item, categories, onClose, onSaved }: { item: StockItem | 
             <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Birim</label><input value={form.unit} onChange={set("unit")} style={s} placeholder="adet, litre, kg..." /></div>
             <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Stok Miktarı</label><input type="number" min={0} value={form.quantity} onChange={set("quantity")} style={s} /></div>
             <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Minimum Stok</label><input type="number" min={0} value={form.minQuantity} onChange={set("minQuantity")} style={s} /></div>
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Birim Fiyat (₺)</label><input type="number" min={0} step={0.01} value={form.price} onChange={set("price")} style={s} /></div>
-            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Son Kullanma Tarihi</label><input type="date" value={form.expiryDate} onChange={set("expiryDate")} style={s} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Alış Fiyatı (₺)</label><input type="number" min={0} step={0.01} value={form.unitCost} onChange={set("unitCost")} style={s} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Satış Fiyatı (₺)</label><input type="number" min={0} step={0.01} value={form.salePrice} onChange={set("salePrice")} style={s} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Personel Primi (%)</label><input type="number" min={0} max={100} step={0.5} value={form.staffBonusPct} onChange={set("staffBonusPct")} style={s} /></div>
+            <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Son Kullanma Tarihi</label><input type="date" value={form.expiresAtUtc} onChange={set("expiresAtUtc")} style={s} /></div>
             <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Tedarikçi</label><input value={form.supplier} onChange={set("supplier")} style={s} /></div>
           </div>
-          <div><label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Notlar</label><textarea value={form.notes} onChange={set("notes")} rows={2} style={{ ...s, resize: "vertical" }} /></div>
           {error && <div style={{ padding: "10px 14px", borderRadius: 10, background: "#fef2f2", color: "#b42318", fontSize: 13, fontWeight: 600 }}>⚠ {error}</div>}
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={onClose} className="btn btn-ghost" style={{ flex: 1 }}>İptal</button>

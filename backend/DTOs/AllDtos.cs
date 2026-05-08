@@ -1153,8 +1153,3 @@ public class AuditLogListItem
     public string?  IpAddress   { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
-
-public class AssignUserToGroupRequest
-{
-    public string UserId { get; set; } = string.Empty;
-}

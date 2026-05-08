@@ -369,5 +369,141 @@ public static class SchemaUpdater
             END IF;
         END $$;
 
+        -- TABLE: BankAccounts
+        CREATE TABLE IF NOT EXISTS "BankAccounts" (
+            "Id"           uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid        NOT NULL,
+            "BankName"     text        NOT NULL,
+            "AccountName"  text        NOT NULL,
+            "IBAN"         text,
+            "IsActive"     boolean     NOT NULL DEFAULT true,
+            "CreatedAtUtc" timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_bankaccounts_salon ON "BankAccounts"("SalonId");
+
+        -- TABLE: CashSessions
+        CREATE TABLE IF NOT EXISTS "CashSessions" (
+            "Id"               uuid          NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"          uuid          NOT NULL,
+            "OpenedByUserId"   uuid          NOT NULL,
+            "ClosedByUserId"   uuid,
+            "OpeningBalance"   numeric(18,2) NOT NULL DEFAULT 0,
+            "ClosingBalance"   numeric(18,2),
+            "Status"           text          NOT NULL DEFAULT 'Open',
+            "Notes"            text,
+            "OpenedAtUtc"      timestamptz   NOT NULL DEFAULT now(),
+            "ClosedAtUtc"      timestamptz
+        );
+        CREATE INDEX IF NOT EXISTS ix_cashsessions_salon_status ON "CashSessions"("SalonId", "Status");
+
+        -- TABLE: CashExpenses
+        CREATE TABLE IF NOT EXISTS "CashExpenses" (
+            "Id"               uuid          NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"          uuid          NOT NULL,
+            "CashSessionId"    uuid,
+            "Description"      text          NOT NULL,
+            "Category"         text          NOT NULL DEFAULT 'Genel',
+            "Amount"           numeric(18,2) NOT NULL DEFAULT 0,
+            "PaymentMethod"    text          NOT NULL DEFAULT 'cash',
+            "BankAccountId"    uuid,
+            "CreatedByUserId"  uuid,
+            "Notes"            text,
+            "CreatedAtUtc"     timestamptz   NOT NULL DEFAULT now(),
+            CONSTRAINT fk_cashexpense_session
+                FOREIGN KEY ("CashSessionId") REFERENCES "CashSessions"("Id") ON DELETE SET NULL,
+            CONSTRAINT fk_cashexpense_bank
+                FOREIGN KEY ("BankAccountId") REFERENCES "BankAccounts"("Id") ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_cashexpenses_salon    ON "CashExpenses"("SalonId");
+        CREATE INDEX IF NOT EXISTS ix_cashexpenses_session  ON "CashExpenses"("CashSessionId");
+
+        -- TABLE: ColorFormulas
+        CREATE TABLE IF NOT EXISTS "ColorFormulas" (
+            "Id"               uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"          uuid        NOT NULL,
+            "CustomerId"       uuid        NOT NULL,
+            "StylistId"        uuid,
+            "FormulaName"      text        NOT NULL,
+            "Brand"            text,
+            "ColorsJson"       text,
+            "Developer"        text,
+            "DeveloperVolume"  text,
+            "ProcessMinutes"   integer,
+            "Notes"            text,
+            "CreatedAtUtc"     timestamptz NOT NULL DEFAULT now(),
+            "UpdatedAtUtc"     timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT fk_colorformula_customer
+                FOREIGN KEY ("CustomerId") REFERENCES "Customers"("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_colorformulas_customer ON "ColorFormulas"("CustomerId");
+        CREATE INDEX IF NOT EXISTS ix_colorformulas_salon    ON "ColorFormulas"("SalonId");
+
+        -- ALTER: PosTransactions — yeni kolonlar
+        ALTER TABLE "PosTransactions"
+            ADD COLUMN IF NOT EXISTS "AppointmentId" uuid,
+            ADD COLUMN IF NOT EXISTS "CashSessionId" uuid,
+            ADD COLUMN IF NOT EXISTS "BankAccountId" uuid,
+            ADD COLUMN IF NOT EXISTS "BankAmount"    numeric(18,2) NOT NULL DEFAULT 0;
+
+        -- ALTER: Appointments — kasa bağlantısı
+        ALTER TABLE "Appointments"
+            ADD COLUMN IF NOT EXISTS "PosTransactionId" uuid;
+
+        -- TABLE: PermissionGroups
+        CREATE TABLE IF NOT EXISTS "PermissionGroups" (
+            "Id"             uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"        uuid        NOT NULL,
+            "Name"           text        NOT NULL,
+            "Description"    text,
+            "AllowedModules" text        NOT NULL DEFAULT '[]',
+            "IsSelfOnly"     boolean     NOT NULL DEFAULT false,
+            "IsBuiltIn"      boolean     NOT NULL DEFAULT false,
+            "CreatedAtUtc"   timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_permgroups_salon ON "PermissionGroups"("SalonId");
+
+        -- TABLE: UserPermissionGroups
+        CREATE TABLE IF NOT EXISTS "UserPermissionGroups" (
+            "UserId"            uuid NOT NULL,
+            "PermissionGroupId" uuid NOT NULL,
+            PRIMARY KEY ("UserId", "PermissionGroupId"),
+            CONSTRAINT fk_upg_user  FOREIGN KEY ("UserId")  REFERENCES "Users"("Id") ON DELETE CASCADE,
+            CONSTRAINT fk_upg_group FOREIGN KEY ("PermissionGroupId") REFERENCES "PermissionGroups"("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_userpermgroups_group ON "UserPermissionGroups"("PermissionGroupId");
+
+        -- ALTER: StockItems — alış/satış fiyatları + prim
+        ALTER TABLE "StockItems"
+            ADD COLUMN IF NOT EXISTS "SalePrice"       numeric(18,2) NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "StaffBonusPct"   numeric(5,2)  NOT NULL DEFAULT 0;
+
+        -- ALTER: Stylists — ücret tipi ve sabit ücret
+        ALTER TABLE "Stylists"
+            ADD COLUMN IF NOT EXISTS "PayType"         varchar(20)   NOT NULL DEFAULT 'commission',
+            ADD COLUMN IF NOT EXISTS "FixedSalary"     numeric(18,2) NOT NULL DEFAULT 0;
+
+        -- PosTransactions: CustomerId link
+        ALTER TABLE "PosTransactions"
+            ADD COLUMN IF NOT EXISTS "CustomerId" uuid REFERENCES "Customers"("Id") ON DELETE SET NULL;
+
+        -- PosTransactionItems: stock item link + staff bonus
+        ALTER TABLE "PosTransactionItems"
+            ADD COLUMN IF NOT EXISTS "StockItemId"   uuid REFERENCES "StockItems"("Id") ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS "StaffBonusPct" numeric(5,2) NOT NULL DEFAULT 0;
+
+        -- Puantaj / Devam tablosu
+        CREATE TABLE IF NOT EXISTS "StylistAttendances" (
+            "Id"           uuid          NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid          NOT NULL,
+            "StylistId"    uuid          NOT NULL REFERENCES "Stylists"("Id") ON DELETE CASCADE,
+            "Status"       varchar(20)   NOT NULL DEFAULT 'present',
+            "Date"         date          NOT NULL,
+            "CheckIn"      varchar(8),
+            "CheckOut"     varchar(8),
+            "Note"         text,
+            "CreatedAtUtc" timestamptz   NOT NULL DEFAULT now(),
+            UNIQUE ("StylistId", "Date")
+        );
+
         """;
 }

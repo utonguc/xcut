@@ -12,6 +12,7 @@ import {
   ShoppingCart, CheckSquare, DollarSign, Globe,
   Settings, Bell, Search, Menu, X, LogOut, ChevronLeft,
   ChevronRight, Sparkles, HeadphonesIcon, CreditCard, ShieldCheck,
+  MessageCircle, BarChart3, ClipboardList, UserCog,
 } from "lucide-react";
 import { exitImpersonation, getImpersonatingSalon } from "@/lib/api";
 
@@ -24,6 +25,10 @@ type Me = {
   fullName: string;
   email: string;
   role: string;
+  activeModules: string[];
+  permissionModules: string[];
+  isSelfOnly: boolean;
+  stylistId?: string;
   profilePhotoUrl?: string;
 };
 
@@ -49,14 +54,21 @@ const ALL_NAV = [
   { href: "/takvim",       label: "Takvim",       Icon: CalendarDays,    module: "appointments" },
   { href: "/customers",    label: "Müşteriler",   Icon: Users,           module: "customers" },
   { href: "/stylists",     label: "Stilistler",   Icon: Scissors,        module: "staff" },
+  { href: "/personel",     label: "Personel",     Icon: UserCog,         module: "staff" },
   { href: "/services",     label: "Hizmetler",    Icon: Sparkles,        module: "services" },
   { href: "/stock",        label: "Stok",         Icon: ShoppingCart,    module: "stock" },
   { href: "/tasks",        label: "Görevler",     Icon: CheckSquare,     module: "tasks" },
-  { href: "/kasa",         label: "Kasa",         Icon: CreditCard,      module: "finance" },
+  { href: "/kasa",         label: "Kasa",         Icon: CreditCard,      module: "kasa" },
   { href: "/finance",      label: "Finans",       Icon: DollarSign,      module: "finance" },
+  { href: "/raporlar",     label: "Raporlar",     Icon: BarChart3,       module: "reports" },
+  { href: "/whatsapp",     label: "WhatsApp",     Icon: MessageCircle,   module: "whatsapp" },
+  { href: "/denetim",      label: "Denetim",      Icon: ClipboardList,   module: "audit" },
   { href: "/website",      label: "Web Sitesi",   Icon: Globe,           module: "website" },
   { href: "/ayarlar",      label: "Ayarlar",      Icon: Settings,        module: "core" },
 ];
+
+const ADMIN_ROLES = ["SuperAdmin", "SalonYonetici", "Admin"];
+const ALL_MODULES = ["appointments","customers","staff","services","stock","tasks","kasa","finance","reports","whatsapp","audit","website","settings"];
 
 const BOTTOM_NAV = [
   { href: "/dashboard",    label: "Ana Sayfa", Icon: LayoutDashboard },
@@ -210,7 +222,14 @@ export default function AppShell({ title, description, actions, children }: Prop
 
       {/* Nav */}
       <nav style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
-        {ALL_NAV.map(({ href, label, Icon }) => {
+        {ALL_NAV.filter(({ module }) => {
+          if (module === "core") return true;
+          if (!me) return true;
+          const isAdmin = ADMIN_ROLES.includes(me.role ?? "");
+          const perms = me.permissionModules ?? [];
+          if (isAdmin && perms.length === 0) return true; // admin with no groups = all modules
+          return perms.includes(module);
+        }).map(({ href, label, Icon }) => {
           const active = pathname === href || (href !== "/" && pathname.startsWith(href));
           const hasBadge = href === "/appointments" && pendingCount > 0;
           return (

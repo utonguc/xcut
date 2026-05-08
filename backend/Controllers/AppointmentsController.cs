@@ -19,7 +19,7 @@ public class AppointmentsController : ControllerBase
     private static readonly TimeSpan ConflictBuffer = TimeSpan.FromMinutes(5);
 
     private static readonly HashSet<string> ValidStatuses =
-        new() { "Scheduled", "Completed", "Cancelled", "NoShow" };
+        new() { "Scheduled", "InProgress", "Late", "Completed", "Cancelled", "NoShow" };
 
     public AppointmentsController(AppDbContext db) => _db = db;
 
@@ -190,6 +190,43 @@ public class AppointmentsController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(new { id = appointment.Id, status = appointment.Status });
+    }
+
+    // PATCH api/appointments/{id}/extend  — adds minutes to EndAtUtc (no conflict check)
+    [HttpPatch("{id:guid}/extend")]
+    public async Task<IActionResult> Extend(Guid id, [FromBody] ExtendRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+        var appt = await _db.Appointments
+            .FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
+        if (appt is null) return NotFound();
+        appt.EndAtUtc      = appt.EndAtUtc.AddMinutes(req.Minutes);
+        appt.UpdatedAtUtc  = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { endAtUtc = appt.EndAtUtc });
+    }
+
+    // POST api/appointments/shift-stylist  — cascade-shift scheduled appts after a point in time
+    [HttpPost("shift-stylist")]
+    public async Task<IActionResult> ShiftStylist([FromBody] ShiftStylistRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+        var appts = await _db.Appointments
+            .Where(x => x.SalonId == salonId.Value
+                     && x.StylistId == req.StylistId
+                     && x.StartAtUtc >= req.AfterUtc
+                     && (x.Status == "Scheduled" || x.Status == "Late"))
+            .ToListAsync();
+        foreach (var a in appts)
+        {
+            a.StartAtUtc   = a.StartAtUtc.AddMinutes(req.ShiftMinutes);
+            a.EndAtUtc     = a.EndAtUtc.AddMinutes(req.ShiftMinutes);
+            a.UpdatedAtUtc = DateTime.UtcNow;
+        }
+        await _db.SaveChangesAsync();
+        return Ok(new { shifted = appts.Count });
     }
 
     // DELETE api/appointments/{id}
