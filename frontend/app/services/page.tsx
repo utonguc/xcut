@@ -281,9 +281,10 @@ function ServiceModal({ service, categories, onClose, onSaved }: {
     if (form.price < 0) { setError("Fiyat negatif olamaz."); return; }
     setSaving(true);
     try {
+      const payload = { ...form, categoryId: form.categoryId || null };
       const res = isEdit
-        ? await apiFetch(`/Services/${service!.id}`, { method: "PUT", body: JSON.stringify(form) })
-        : await apiFetch("/Services", { method: "POST", body: JSON.stringify(form) });
+        ? await apiFetch(`/Services/${service!.id}`, { method: "PUT", body: JSON.stringify(payload) })
+        : await apiFetch("/Services", { method: "POST", body: JSON.stringify(payload) });
       if (res.ok) onSaved();
       else { const d = await res.json().catch(() => ({})); setError(d.message ?? "Kayıt hatası"); }
     } finally { setSaving(false); }
