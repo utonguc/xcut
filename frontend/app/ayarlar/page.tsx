@@ -45,7 +45,22 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<"org" | "users" | "banka" | "yetki" | "security">("org");
+  const [tab,        setTab]        = useState<"org" | "users" | "banka" | "yetki" | "security">("org");
+  const [isSelfOnly, setIsSelfOnly] = useState(false);
+
+  useEffect(() => {
+    apiFetch("/Auth/me").then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.isSelfOnly) { setIsSelfOnly(true); setTab("security"); }
+    });
+  }, []);
+
+  if (isSelfOnly) {
+    return (
+      <AppShell title="Ayarlar" description="Hesap güvenliği">
+        <SecurityTab />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell title="Ayarlar" description="Kurum, kullanıcı ve güvenlik yönetimi">

@@ -41,7 +41,7 @@ type Leave = {
 };
 
 /* ── Stylist Card ───────────────────────────────────────────────── */
-function StylistCard({ stylist, onEdit, onSchedule }: { stylist: Stylist; onEdit: () => void; onSchedule: () => void }) {
+function StylistCard({ stylist, onEdit, onSchedule, canEdit }: { stylist: Stylist; onEdit: () => void; onSchedule: () => void; canEdit: boolean }) {
   return (
     <div className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
@@ -73,7 +73,7 @@ function StylistCard({ stylist, onEdit, onSchedule }: { stylist: Stylist; onEdit
       </div>
       {stylist.bio && <p style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5, borderTop: "1px solid var(--border,#f2f4f7)", paddingTop: 10 }}>{stylist.bio}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-        <button onClick={onEdit} className="btn btn-ghost" style={{ flex: 1, fontSize: 13 }}>✏️ Düzenle</button>
+        {canEdit && <button onClick={onEdit} className="btn btn-ghost" style={{ flex: 1, fontSize: 13 }}>✏️ Düzenle</button>}
         <button onClick={onSchedule} className="btn btn-ghost" style={{ flex: 1, fontSize: 13 }}>📅 Program</button>
       </div>
     </div>
@@ -88,6 +88,7 @@ export default function StylistsPage() {
   const [editStylist, setEditStylist] = useState<Stylist | null>(null);
   const [schedModal,  setSchedModal]  = useState<Stylist | null>(null);
   const [filterActive, setFilterActive] = useState("true");
+  const [canEdit,     setCanEdit]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +98,12 @@ export default function StylistsPage() {
       if (r.ok) setStylists(await r.json());
     } finally { setLoading(false); }
   }, [filterActive]);
+
+  useEffect(() => {
+    apiFetch("/Auth/me").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && !d.isSelfOnly) setCanEdit(true);
+    });
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -134,6 +141,7 @@ export default function StylistsPage() {
             <StylistCard
               key={s.id}
               stylist={s}
+              canEdit={canEdit}
               onEdit={() => { setEditStylist(s); setShowModal(true); }}
               onSchedule={() => setSchedModal(s)}
             />

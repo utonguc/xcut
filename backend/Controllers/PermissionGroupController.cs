@@ -64,6 +64,7 @@ public class PermissionGroupController : ControllerBase
         return Ok(groups.Select(ToResponse));
     }
 
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreatePermissionGroupRequest req)
     {
@@ -84,6 +85,7 @@ public class PermissionGroupController : ControllerBase
         return Ok(new { id = group.Id });
     }
 
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] CreatePermissionGroupRequest req)
     {
@@ -101,6 +103,7 @@ public class PermissionGroupController : ControllerBase
         return Ok();
     }
 
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
@@ -116,6 +119,7 @@ public class PermissionGroupController : ControllerBase
         return Ok();
     }
 
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
     [HttpPost("{id:guid}/users")]
     public async Task<IActionResult> AssignUser(Guid id, [FromBody] AssignUserToGroupRequest req)
     {
@@ -138,6 +142,7 @@ public class PermissionGroupController : ControllerBase
         return Ok();
     }
 
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
     [HttpDelete("{id:guid}/users/{userId:guid}")]
     public async Task<IActionResult> RemoveUser(Guid id, Guid userId)
     {
