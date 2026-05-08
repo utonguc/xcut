@@ -20,15 +20,18 @@ public class LoginResponse
 
 public class MeResponse
 {
-    public string    UserId         { get; set; } = string.Empty;
-    public string    SalonId        { get; set; } = string.Empty;
-    public string    SalonName      { get; set; } = string.Empty;
-    public string    UserName       { get; set; } = string.Empty;
-    public string    FullName       { get; set; } = string.Empty;
-    public string?   Email          { get; set; }
-    public string?   Role           { get; set; }
-    public List<string> ActiveModules { get; set; } = new();
-    public string?   ProfilePhotoUrl { get; set; }
+    public string    UserId            { get; set; } = string.Empty;
+    public string    SalonId           { get; set; } = string.Empty;
+    public string    SalonName         { get; set; } = string.Empty;
+    public string    UserName          { get; set; } = string.Empty;
+    public string    FullName          { get; set; } = string.Empty;
+    public string?   Email             { get; set; }
+    public string?   Role              { get; set; }
+    public List<string> ActiveModules  { get; set; } = new();
+    public List<string> PermissionModules { get; set; } = new(); // from PermissionGroup
+    public bool      IsSelfOnly        { get; set; } = false;
+    public string?   StylistId         { get; set; }
+    public string?   ProfilePhotoUrl   { get; set; }
 }
 
 public class ChangePasswordRequest
@@ -101,6 +104,9 @@ public class CreateStylistRequest
     public string? Specializations { get; set; }
     public int?    ExperienceYears { get; set; }
     public string? Certificates    { get; set; }
+    public string  PayType         { get; set; } = "commission";
+    public decimal FixedSalary     { get; set; } = 0;
+    public decimal CommissionRate  { get; set; } = 0;
 }
 
 public class UpdateStylistRequest : CreateStylistRequest
@@ -121,6 +127,9 @@ public class StylistResponse
     public int?    ExperienceYears { get; set; }
     public string? Certificates    { get; set; }
     public bool    IsActive        { get; set; }
+    public string  PayType         { get; set; } = "commission";
+    public decimal FixedSalary     { get; set; }
+    public decimal CommissionRate  { get; set; }
     public DateTime CreatedAtUtc   { get; set; }
 }
 
@@ -168,6 +177,9 @@ public class UpdateAppointmentStatusRequest
 {
     public string Status { get; set; } = string.Empty;
 }
+
+public record ExtendRequest(int Minutes);
+public record ShiftStylistRequest(Guid StylistId, DateTime AfterUtc, int ShiftMinutes);
 
 public class AppointmentResponse
 {
@@ -399,14 +411,16 @@ public class AssetResponse
 
 public class CreateStockItemRequest
 {
-    public string    Name        { get; set; } = string.Empty;
-    public string?   Category    { get; set; }
-    public string?   Unit        { get; set; }
-    public string?   Barcode     { get; set; }
-    public string?   Supplier    { get; set; }
-    public decimal   UnitCost    { get; set; }
-    public int       Quantity    { get; set; }
-    public int       MinQuantity { get; set; } = 5;
+    public string    Name         { get; set; } = string.Empty;
+    public string?   Category     { get; set; }
+    public string?   Unit         { get; set; }
+    public string?   Barcode      { get; set; }
+    public string?   Supplier     { get; set; }
+    public decimal   UnitCost     { get; set; }
+    public decimal   SalePrice    { get; set; }
+    public decimal   StaffBonusPct { get; set; }
+    public int       Quantity     { get; set; }
+    public int       MinQuantity  { get; set; } = 5;
     public DateTime? ExpiresAtUtc { get; set; }
 }
 
@@ -421,19 +435,21 @@ public class StockMovementRequest
 
 public class StockItemResponse
 {
-    public Guid    Id          { get; set; }
-    public string  Name        { get; set; } = string.Empty;
-    public string? Category    { get; set; }
-    public string? Unit        { get; set; }
-    public string? Barcode     { get; set; }
-    public string? Supplier    { get; set; }
-    public decimal UnitCost    { get; set; }
-    public int     Quantity    { get; set; }
-    public int     MinQuantity { get; set; }
-    public bool    IsLow       { get; set; }
+    public Guid    Id            { get; set; }
+    public string  Name          { get; set; } = string.Empty;
+    public string? Category      { get; set; }
+    public string? Unit          { get; set; }
+    public string? Barcode       { get; set; }
+    public string? Supplier      { get; set; }
+    public decimal UnitCost      { get; set; }
+    public decimal SalePrice     { get; set; }
+    public decimal StaffBonusPct { get; set; }
+    public int     Quantity      { get; set; }
+    public int     MinQuantity   { get; set; }
+    public bool    IsLow         { get; set; }
     public DateTime? ExpiresAtUtc { get; set; }
-    public bool    IsExpired   { get; set; }
-    public bool    ExpiresSoon { get; set; }
+    public bool    IsExpired     { get; set; }
+    public bool    ExpiresSoon   { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }
 
@@ -978,4 +994,167 @@ public class PagedResult<T>
 public class ImpersonateRequest
 {
     public Guid? UserId { get; set; }
+}
+
+// ── PermissionGroup ───────────────────────────────────────────────────────────
+
+public class PermissionGroupResponse
+{
+    public string   Id             { get; set; } = string.Empty;
+    public string   Name           { get; set; } = string.Empty;
+    public string?  Description    { get; set; }
+    public List<string> AllowedModules { get; set; } = new();
+    public bool     IsSelfOnly     { get; set; }
+    public bool     IsBuiltIn      { get; set; }
+    public int      UserCount      { get; set; }
+    public List<UserInGroupResponse> Users { get; set; } = new();
+}
+
+public class UserInGroupResponse
+{
+    public string  Id       { get; set; } = string.Empty;
+    public string  FullName { get; set; } = string.Empty;
+    public string  Email    { get; set; } = string.Empty;
+    public string? Role     { get; set; }
+}
+
+public class CreatePermissionGroupRequest
+{
+    public string   Name           { get; set; } = string.Empty;
+    public string?  Description    { get; set; }
+    public List<string> AllowedModules { get; set; } = new();
+    public bool     IsSelfOnly     { get; set; }
+}
+
+public class AssignUserToGroupRequest
+{
+    public string UserId { get; set; } = string.Empty;
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+public class TransactionListItem
+{
+    public string   Id            { get; set; } = string.Empty;
+    public string?  StylistName   { get; set; }
+    public string?  CustomerName  { get; set; }
+    public decimal  Total         { get; set; }
+    public decimal  CashAmount    { get; set; }
+    public decimal  CardAmount    { get; set; }
+    public decimal  BankAmount    { get; set; }
+    public string   PaymentMethod { get; set; } = string.Empty;
+    public string   Status        { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc  { get; set; }
+    public int      ItemCount     { get; set; }
+}
+
+public class TransactionDetailResponse
+{
+    public string   Id            { get; set; } = string.Empty;
+    public string?  StylistName   { get; set; }
+    public string?  CustomerName  { get; set; }
+    public decimal  Subtotal      { get; set; }
+    public string   DiscountType  { get; set; } = string.Empty;
+    public decimal  DiscountValue { get; set; }
+    public decimal  DiscountAmount{ get; set; }
+    public decimal  Total         { get; set; }
+    public decimal  CashAmount    { get; set; }
+    public decimal  CardAmount    { get; set; }
+    public decimal  BankAmount    { get; set; }
+    public string   PaymentMethod { get; set; } = string.Empty;
+    public string   Status        { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc  { get; set; }
+    public List<TransactionItemDto> Items { get; set; } = new();
+    public string?  SalonName     { get; set; }
+}
+
+public class TransactionItemDto
+{
+    public string  Name      { get; set; } = string.Empty;
+    public decimal UnitPrice { get; set; }
+    public int     Quantity  { get; set; }
+    public decimal LineTotal { get; set; }
+}
+
+public class PeriodSummaryResponse
+{
+    public decimal TotalRevenue  { get; set; }
+    public decimal TotalCash     { get; set; }
+    public decimal TotalCard     { get; set; }
+    public decimal TotalBank     { get; set; }
+    public decimal TotalExpenses { get; set; }
+    public int     TxCount       { get; set; }
+    public List<PeriodBucket> Buckets { get; set; } = new();
+}
+
+public class PeriodBucket
+{
+    public string  Label   { get; set; } = string.Empty;
+    public decimal Revenue { get; set; }
+    public decimal Cash    { get; set; }
+    public decimal Card    { get; set; }
+    public decimal Bank    { get; set; }
+    public int     Count   { get; set; }
+}
+
+public class CommissionRowDto
+{
+    public Guid    StylistId      { get; set; }
+    public string  StylistName    { get; set; } = string.Empty;
+    public string  PayType        { get; set; } = string.Empty;
+    public decimal CommissionRate { get; set; }
+    public decimal FixedSalary    { get; set; }
+    public decimal Revenue        { get; set; }
+    public decimal Commission     { get; set; }
+    public int     TxCount        { get; set; }
+}
+
+// ── WhatsApp ──────────────────────────────────────────────────────────────────
+
+public class WhatsAppSettingsResponse
+{
+    public bool    IsActive      { get; set; }
+    public string? PhoneNumberId { get; set; }
+    public string? FromNumber    { get; set; }
+    public bool    HasToken      { get; set; }
+}
+
+public class UpdateWhatsAppSettingsRequest
+{
+    public bool    IsActive      { get; set; }
+    public string? ApiToken      { get; set; }
+    public string? PhoneNumberId { get; set; }
+    public string? FromNumber    { get; set; }
+}
+
+public class WhatsAppLogListItem
+{
+    public string   Id           { get; set; } = string.Empty;
+    public string   ToNumber     { get; set; } = string.Empty;
+    public string   MessageBody  { get; set; } = string.Empty;
+    public string   Status       { get; set; } = string.Empty;
+    public string?  CustomerName { get; set; }
+    public string?  SentByName   { get; set; }
+    public string?  MessageType  { get; set; }
+    public string?  ErrorDetail  { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+// ── AuditLog ──────────────────────────────────────────────────────────────────
+
+public class AuditLogListItem
+{
+    public string   Id          { get; set; } = string.Empty;
+    public string?  UserName    { get; set; }
+    public string   EntityType  { get; set; } = string.Empty;
+    public string   EntityId    { get; set; } = string.Empty;
+    public string   Action      { get; set; } = string.Empty;
+    public string   Description { get; set; } = string.Empty;
+    public string?  IpAddress   { get; set; }
+    public DateTime CreatedAtUtc { get; set; }
+}
+
+public class AssignUserToGroupRequest
+{
+    public string UserId { get; set; } = string.Empty;
 }
