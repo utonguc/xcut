@@ -31,13 +31,13 @@ public class StylistsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] bool activeOnly = false)
+    public async Task<IActionResult> GetAll([FromQuery] bool? isActive = null)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
         var q = _db.Stylists.Where(x => x.SalonId == salonId.Value);
-        if (activeOnly) q = q.Where(x => x.IsActive);
+        if (isActive.HasValue) q = q.Where(x => x.IsActive == isActive.Value);
 
         var items = await q
             .OrderBy(x => x.FullName)
@@ -47,6 +47,7 @@ public class StylistsController : ControllerBase
                 Phone = x.Phone, Email = x.Email, PhotoUrl = x.PhotoUrl,
                 Biography = x.Biography, Specializations = x.Specializations,
                 ExperienceYears = x.ExperienceYears, IsActive = x.IsActive,
+                PayType = x.PayType, FixedSalary = x.FixedSalary, CommissionRate = x.CommissionRate,
                 CreatedAtUtc = x.CreatedAtUtc
             })
             .ToListAsync();
@@ -87,7 +88,10 @@ public class StylistsController : ControllerBase
             Biography       = req.Biography,
             Specializations = req.Specializations,
             ExperienceYears = req.ExperienceYears,
-            IsActive        = true
+            IsActive        = true,
+            PayType         = req.PayType,
+            FixedSalary     = req.FixedSalary,
+            CommissionRate  = req.CommissionRate,
         };
 
         _db.Stylists.Add(stylist);
@@ -117,6 +121,9 @@ public class StylistsController : ControllerBase
         s.Specializations = req.Specializations;
         s.ExperienceYears = req.ExperienceYears;
         s.IsActive        = req.IsActive;
+        s.PayType         = req.PayType;
+        s.FixedSalary     = req.FixedSalary;
+        s.CommissionRate  = req.CommissionRate;
 
         await _db.SaveChangesAsync();
         return Ok(Map(s));
@@ -172,6 +179,7 @@ public class StylistsController : ControllerBase
         Phone = s.Phone, Email = s.Email, PhotoUrl = s.PhotoUrl,
         Biography = s.Biography, Specializations = s.Specializations,
         ExperienceYears = s.ExperienceYears, IsActive = s.IsActive,
+        PayType = s.PayType, FixedSalary = s.FixedSalary, CommissionRate = s.CommissionRate,
         CreatedAtUtc = s.CreatedAtUtc
     };
 }

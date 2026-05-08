@@ -15,6 +15,9 @@ type Stylist = {
   bio?: string;
   photoUrl?: string;
   isActive: boolean;
+  payType?: string;
+  fixedSalary?: number;
+  commissionRate?: number;
   appointmentsCount?: number;
 };
 
@@ -55,6 +58,10 @@ function StylistCard({ stylist, onEdit, onSchedule }: { stylist: Stylist; onEdit
           {stylist.specialty && <div style={{ fontSize: 13, color: "#7c3aed", fontWeight: 600 }}>{stylist.specialty}</div>}
           {stylist.branch    && <div style={{ fontSize: 12, color: "#64748b" }}>{stylist.branch}</div>}
           {stylist.phone     && <div style={{ fontSize: 12, color: "#64748b" }}>📞 {stylist.phone}</div>}
+          {stylist.payType === "commission"
+            ? <div style={{ fontSize: 12, color: "#059669", fontWeight: 600 }}>%{stylist.commissionRate ?? 0} prim</div>
+            : stylist.fixedSalary ? <div style={{ fontSize: 12, color: "#2563eb", fontWeight: 600 }}>₺{(stylist.fixedSalary ?? 0).toLocaleString("tr-TR")}</div> : null
+          }
         </div>
         <span className="badge" style={{ background: stylist.isActive ? "#dcfce7" : "#fee2e2", color: stylist.isActive ? "#166534" : "#991b1b", flexShrink: 0 }}>
           {stylist.isActive ? "Aktif" : "Pasif"}
@@ -81,7 +88,7 @@ export default function StylistsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = filterActive !== "all" ? `?activeOnly=${filterActive}` : "";
+      const params = filterActive !== "all" ? `?isActive=${filterActive}` : "";
       const r = await apiFetch(`/Stylists${params}`);
       if (r.ok) setStylists(await r.json());
     } finally { setLoading(false); }
@@ -152,33 +159,45 @@ export default function StylistsPage() {
 function StylistModal({ stylist, onClose, onSaved }: { stylist: Stylist | null; onClose: () => void; onSaved: () => void }) {
   const isEdit = !!stylist?.id;
   const [form, setForm] = useState({
-    fullName:  stylist?.fullName ?? "",
-    specialty: stylist?.specialty ?? "",
-    branch:    stylist?.branch ?? "",
-    phone:     stylist?.phone ?? "",
-    email:     stylist?.email ?? "",
-    bio:       stylist?.bio ?? "",
-    isActive:  stylist?.isActive ?? true,
+    fullName:      stylist?.fullName ?? "",
+    specialty:     stylist?.specialty ?? "",
+    branch:        stylist?.branch ?? "",
+    phone:         stylist?.phone ?? "",
+    email:         stylist?.email ?? "",
+    bio:           stylist?.bio ?? "",
+    isActive:      stylist?.isActive ?? true,
+    payType:       stylist?.payType ?? "commission",
+    fixedSalary:   stylist?.fixedSalary ?? 0,
+    commissionRate: stylist?.commissionRate ?? 0,
   });
   const [photo,   setPhoto]   = useState<File | null>(null);
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
 
+  const NUMERIC_FIELDS = ["fixedSalary", "commissionRate"];
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
-    setForm(prev => ({ ...prev, [k]: e.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value }));
+    setForm(prev => ({
+      ...prev,
+      [k]: e.target.type === "checkbox"
+        ? (e.target as HTMLInputElement).checked
+        : NUMERIC_FIELDS.includes(k) ? Number(e.target.value) : e.target.value,
+    }));
 
   const save = async () => {
     if (!form.fullName) { setError("Ad zorunludur."); return; }
     setSaving(true);
     try {
-      const fd = new FormData();
-      Object.entries(form).forEach(([k, v]) => fd.append(k, String(v)));
-      if (photo) fd.append("photo", photo);
       const res = isEdit
-        ? await apiFetch(`/Stylists/${stylist!.id}`, { method: "PUT", headers: {}, body: fd })
-        : await apiFetch("/Stylists", { method: "POST", headers: {}, body: fd });
-      if (res.ok) onSaved();
-      else { const d = await res.json().catch(() => ({})); setError(d.message ?? "Kayıt hatası"); }
+        ? await apiFetch(`/Stylists/${stylist!.id}`, { method: "PUT", body: JSON.stringify(form) })
+        : await apiFetch("/Stylists", { method: "POST", body: JSON.stringify(form) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.message ?? "Kayıt hatası"); return; }
+      const savedId: string = isEdit ? stylist!.id : await res.json();
+      if (photo) {
+        const fd = new FormData();
+        fd.append("file", photo);
+        await apiFetch(`/Stylists/${savedId}/photo`, { method: "POST", headers: {}, body: fd });
+      }
+      onSaved();
     } finally { setSaving(false); }
   };
 
@@ -207,6 +226,32 @@ function StylistModal({ stylist, onClose, onSaved }: { stylist: Stylist | null; 
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Fotoğraf</label>
             <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} style={{ fontSize: 14 }} />
+          </div>
+          {/* Salary section */}
+          <div style={{ borderTop: "1px solid var(--border,#eaecf0)", paddingTop: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#344054", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>Ücret Bilgileri</div>
+            <div className="form-grid">
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Ücret Tipi</label>
+                <select value={form.payType} onChange={set("payType")} style={s}>
+                  <option value="commission">Prim / Pay (%)</option>
+                  <option value="fixed_monthly">Sabit Aylık</option>
+                  <option value="fixed_weekly">Sabit Haftalık</option>
+                  <option value="fixed_daily">Günlük</option>
+                </select>
+              </div>
+              {form.payType === "commission" ? (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Pay Oranı (%)</label>
+                  <input type="number" min={0} max={100} step={0.5} value={form.commissionRate} onChange={set("commissionRate")} style={s} />
+                </div>
+              ) : (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Sabit Ücret (₺)</label>
+                  <input type="number" min={0} step={0.01} value={form.fixedSalary} onChange={set("fixedSalary")} style={s} />
+                </div>
+              )}
+            </div>
           </div>
           <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={form.isActive} onChange={set("isActive")} style={{ width: 18, height: 18, accentColor: "#7c3aed" }} />
