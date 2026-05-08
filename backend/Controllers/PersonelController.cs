@@ -24,7 +24,40 @@ public class PersonelController : ControllerBase
         return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
     }
 
-    // GET /api/Personel/attendance?year=2026&month=5
+    private Guid? GetCurrentUserId()
+    {
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    // ── Weekly Off Days ───────────────────────────────────────────────────────
+
+    // GET /api/Personel/weekly-off
+    [HttpGet("weekly-off")]
+    public async Task<IActionResult> GetWeeklyOff()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+        var salon = await _db.Salons.FirstOrDefaultAsync(s => s.Id == salonId.Value);
+        return Ok(new { days = salon?.WeeklyOffDays ?? "0" });
+    }
+
+    // PUT /api/Personel/weekly-off
+    [HttpPut("weekly-off")]
+    public async Task<IActionResult> SetWeeklyOff([FromBody] WeeklyOffRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+        var salon = await _db.Salons.FirstOrDefaultAsync(s => s.Id == salonId.Value);
+        if (salon is null) return NotFound();
+        salon.WeeklyOffDays = req.Days ?? "0";
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // ── Attendance ────────────────────────────────────────────────────────────
+
+    // GET /api/Personel/attendance?year=&month=
     [HttpGet("attendance")]
     public async Task<IActionResult> GetAttendance([FromQuery] int year, [FromQuery] int month)
     {
@@ -38,8 +71,8 @@ public class PersonelController : ControllerBase
             .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to)
             .Select(a => new
             {
-                a.Id, a.StylistId, a.Status,
-                Date     = a.Date.ToString("yyyy-MM-dd"),
+                a.Id, a.StylistId, a.Status, a.IsHalfDay,
+                Date    = a.Date.ToString("yyyy-MM-dd"),
                 a.CheckIn, a.CheckOut, a.Note,
             })
             .ToListAsync();
@@ -47,13 +80,12 @@ public class PersonelController : ControllerBase
         return Ok(rows);
     }
 
-    // PUT /api/Personel/attendance — upsert a single day entry
+    // PUT /api/Personel/attendance — upsert single day
     [HttpPut("attendance")]
     public async Task<IActionResult> UpsertAttendance([FromBody] UpsertAttendanceRequest req)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
-
         if (!DateOnly.TryParse(req.Date, out var date)) return BadRequest(new { message = "Geçersiz tarih." });
 
         var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == req.StylistId && s.SalonId == salonId.Value);
@@ -70,6 +102,7 @@ public class PersonelController : ControllerBase
                 StylistId = req.StylistId,
                 Date      = date,
                 Status    = req.Status,
+                IsHalfDay = req.IsHalfDay,
                 CheckIn   = req.CheckIn,
                 CheckOut  = req.CheckOut,
                 Note      = req.Note,
@@ -77,17 +110,38 @@ public class PersonelController : ControllerBase
         }
         else
         {
-            existing.Status   = req.Status;
-            existing.CheckIn  = req.CheckIn;
-            existing.CheckOut = req.CheckOut;
-            existing.Note     = req.Note;
+            existing.Status    = req.Status;
+            existing.IsHalfDay = req.IsHalfDay;
+            existing.CheckIn   = req.CheckIn;
+            existing.CheckOut  = req.CheckOut;
+            existing.Note      = req.Note;
         }
 
         await _db.SaveChangesAsync();
         return Ok();
     }
 
-    // GET /api/Personel/leaves?stylistId=...
+    // DELETE /api/Personel/attendance?stylistId=&date=
+    [HttpDelete("attendance")]
+    public async Task<IActionResult> DeleteAttendance([FromQuery] Guid stylistId, [FromQuery] string date)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+        if (!DateOnly.TryParse(date, out var d)) return BadRequest(new { message = "Geçersiz tarih." });
+
+        var row = await _db.StylistAttendances
+            .FirstOrDefaultAsync(a => a.StylistId == stylistId && a.Date == d && a.SalonId == salonId.Value);
+        if (row is not null)
+        {
+            _db.StylistAttendances.Remove(row);
+            await _db.SaveChangesAsync();
+        }
+        return NoContent();
+    }
+
+    // ── Leaves ────────────────────────────────────────────────────────────────
+
+    // GET /api/Personel/leaves?stylistId=
     [HttpGet("leaves")]
     public async Task<IActionResult> GetLeaves([FromQuery] Guid? stylistId = null)
     {
@@ -124,12 +178,9 @@ public class PersonelController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
-        if (!DateOnly.TryParse(req.StartDate, out var start))
-            return BadRequest(new { message = "Geçersiz başlangıç tarihi." });
-        if (!DateOnly.TryParse(req.EndDate, out var end))
-            return BadRequest(new { message = "Geçersiz bitiş tarihi." });
-        if (start > end)
-            return BadRequest(new { message = "Bitiş tarihi başlangıçtan önce olamaz." });
+        if (!DateOnly.TryParse(req.StartDate, out var start)) return BadRequest(new { message = "Geçersiz başlangıç tarihi." });
+        if (!DateOnly.TryParse(req.EndDate,   out var end))   return BadRequest(new { message = "Geçersiz bitiş tarihi." });
+        if (start > end) return BadRequest(new { message = "Bitiş tarihi başlangıçtan önce olamaz." });
 
         var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == req.StylistId && s.SalonId == salonId.Value);
         if (stylist is null) return NotFound(new { message = "Stilist bulunamadı." });
@@ -165,7 +216,155 @@ public class PersonelController : ControllerBase
         return NoContent();
     }
 
-    // GET /api/Personel/summary?year=2026&month=5
+    // ── Leave Requests (approval workflow) ───────────────────────────────────
+
+    // GET /api/Personel/leave-requests?status=Pending
+    [HttpGet("leave-requests")]
+    public async Task<IActionResult> GetLeaveRequests([FromQuery] string? status = null)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var q = _db.PersonelLeaveRequests
+            .Include(r => r.Stylist)
+            .Where(r => r.SalonId == salonId.Value)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(status)) q = q.Where(r => r.Status == status);
+
+        var items = await q
+            .OrderByDescending(r => r.RequestedAt)
+            .Select(r => new LeaveRequestResponse
+            {
+                Id           = r.Id,
+                StylistId    = r.StylistId,
+                StylistName  = r.Stylist!.FullName,
+                LeaveType    = r.LeaveType,
+                StartDate    = r.StartDate.ToString("yyyy-MM-dd"),
+                EndDate      = r.EndDate.ToString("yyyy-MM-dd"),
+                IsHalfDay    = r.IsHalfDay,
+                Note         = r.Note,
+                Status       = r.Status,
+                RequestedAt  = r.RequestedAt,
+                RejectReason = r.RejectReason,
+            })
+            .ToListAsync();
+
+        return Ok(items);
+    }
+
+    // POST /api/Personel/leave-requests
+    [HttpPost("leave-requests")]
+    public async Task<IActionResult> CreateLeaveRequest([FromBody] CreateLeaveRequestDto req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        if (!DateOnly.TryParse(req.StartDate, out var start)) return BadRequest(new { message = "Geçersiz başlangıç tarihi." });
+        if (!DateOnly.TryParse(req.EndDate,   out var end))   return BadRequest(new { message = "Geçersiz bitiş tarihi." });
+        if (start > end) return BadRequest(new { message = "Bitiş tarihi başlangıçtan önce olamaz." });
+
+        var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == req.StylistId && s.SalonId == salonId.Value);
+        if (stylist is null) return NotFound(new { message = "Stilist bulunamadı." });
+
+        var item = new PersonelLeaveRequest
+        {
+            SalonId   = salonId.Value,
+            StylistId = req.StylistId,
+            LeaveType = req.LeaveType,
+            StartDate = start,
+            EndDate   = end,
+            IsHalfDay = req.IsHalfDay,
+            Note      = req.Note,
+        };
+        _db.PersonelLeaveRequests.Add(item);
+        await _db.SaveChangesAsync();
+        return Ok(new { item.Id });
+    }
+
+    // PATCH /api/Personel/leave-requests/{id}/approve
+    [HttpPatch("leave-requests/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveLeaveRequest(Guid id)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var req = await _db.PersonelLeaveRequests
+            .FirstOrDefaultAsync(r => r.Id == id && r.SalonId == salonId.Value);
+        if (req is null) return NotFound();
+        if (req.Status != "Pending") return BadRequest(new { message = "Bu talep zaten işlenmiş." });
+
+        req.Status      = "Approved";
+        req.ProcessedAt = DateTime.UtcNow;
+        req.ProcessedBy = GetCurrentUserId();
+
+        // Auto-fill puantaj for each day in range
+        var daysRange = Enumerable.Range(0, req.EndDate.DayNumber - req.StartDate.DayNumber + 1)
+            .Select(d => req.StartDate.AddDays(d)).ToList();
+
+        foreach (var date in daysRange)
+        {
+            var existing = await _db.StylistAttendances
+                .FirstOrDefaultAsync(a => a.StylistId == req.StylistId && a.Date == date);
+            if (existing is null)
+            {
+                _db.StylistAttendances.Add(new StylistAttendance
+                {
+                    SalonId   = salonId.Value,
+                    StylistId = req.StylistId,
+                    Date      = date,
+                    Status    = "leave",
+                    IsHalfDay = req.IsHalfDay,
+                    Note      = req.LeaveType,
+                });
+            }
+            else
+            {
+                existing.Status    = "leave";
+                existing.IsHalfDay = req.IsHalfDay;
+                existing.Note      = req.LeaveType;
+            }
+        }
+
+        // Create formal leave record
+        _db.StylistLeaves.Add(new StylistLeave
+        {
+            StylistId  = req.StylistId,
+            SalonId    = salonId.Value,
+            StartAtUtc = req.StartDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            EndAtUtc   = req.EndDate.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc),
+            Reason     = req.Note,
+            LeaveType  = req.LeaveType,
+        });
+
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // PATCH /api/Personel/leave-requests/{id}/reject
+    [HttpPatch("leave-requests/{id:guid}/reject")]
+    public async Task<IActionResult> RejectLeaveRequest(Guid id, [FromBody] RejectLeaveBody req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var item = await _db.PersonelLeaveRequests
+            .FirstOrDefaultAsync(r => r.Id == id && r.SalonId == salonId.Value);
+        if (item is null) return NotFound();
+        if (item.Status != "Pending") return BadRequest(new { message = "Bu talep zaten işlenmiş." });
+
+        item.Status       = "Rejected";
+        item.ProcessedAt  = DateTime.UtcNow;
+        item.ProcessedBy  = GetCurrentUserId();
+        item.RejectReason = req.Reason;
+
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // ── Summary ───────────────────────────────────────────────────────────────
+
+    // GET /api/Personel/summary?year=&month=
     [HttpGet("summary")]
     public async Task<IActionResult> MonthlySummary([FromQuery] int year, [FromQuery] int month)
     {
@@ -178,12 +377,9 @@ public class PersonelController : ControllerBase
             .Count(d => { var dow = from.AddDays(d).DayOfWeek; return dow != DayOfWeek.Sunday; });
 
         var stylists = await _db.Stylists
-            .Where(s => s.SalonId == salonId.Value && s.IsActive)
-            .ToListAsync();
-
+            .Where(s => s.SalonId == salonId.Value && s.IsActive).ToListAsync();
         var attendances = await _db.StylistAttendances
-            .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to)
-            .ToListAsync();
+            .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to).ToListAsync();
 
         var result = stylists.Select(s =>
         {
@@ -192,9 +388,10 @@ public class PersonelController : ControllerBase
             {
                 s.Id, s.FullName, s.PayType, s.FixedSalary, s.CommissionRate,
                 Present     = sa.Count(a => a.Status == "present"),
+                PresentHalf = sa.Count(a => a.Status == "present" && a.IsHalfDay),
                 Absent      = sa.Count(a => a.Status == "absent"),
                 Leave       = sa.Count(a => a.Status == "leave"),
-                Holiday     = sa.Count(a => a.Status == "holiday"),
+                Holiday     = sa.Count(a => a.Status is "holiday" or "official"),
                 WorkingDays = workingDays,
             };
         });
@@ -208,6 +405,7 @@ public class UpsertAttendanceRequest
     public Guid    StylistId { get; set; }
     public string  Date      { get; set; } = string.Empty;
     public string  Status    { get; set; } = "present";
+    public bool    IsHalfDay { get; set; }
     public string? CheckIn   { get; set; }
     public string? CheckOut  { get; set; }
     public string? Note      { get; set; }

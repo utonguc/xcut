@@ -51,7 +51,8 @@ public class AppDbContext : DbContext
     public DbSet<ColorFormula>        ColorFormulas        => Set<ColorFormula>();
     public DbSet<PermissionGroup>     PermissionGroups     => Set<PermissionGroup>();
     public DbSet<UserPermissionGroup> UserPermissionGroups => Set<UserPermissionGroup>();
-    public DbSet<StylistAttendance>   StylistAttendances   => Set<StylistAttendance>();
+    public DbSet<StylistAttendance>     StylistAttendances     => Set<StylistAttendance>();
+    public DbSet<PersonelLeaveRequest>  PersonelLeaveRequests  => Set<PersonelLeaveRequest>();
 
     protected override void OnModelCreating(ModelBuilder m)
     {
@@ -337,6 +338,20 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Salon).WithMany()
                 .HasForeignKey(x => x.SalonId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.StylistId, x.StartAtUtc });
+        });
+
+        m.Entity<PersonelLeaveRequest>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.LeaveType).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired().HasDefaultValue("Pending");
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.RejectReason).HasMaxLength(500);
+            e.HasOne(x => x.Stylist).WithMany()
+                .HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Salon).WithMany()
+                .HasForeignKey(x => x.SalonId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.SalonId, x.Status });
         });
 
         // ── AppointmentRequest ────────────────────────────────────────────────

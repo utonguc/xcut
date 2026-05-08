@@ -650,11 +650,35 @@ public class StylistAttendance
     public Guid    SalonId    { get; set; }
     public Guid    StylistId  { get; set; }
     public Stylist? Stylist   { get; set; }
-    /// <summary>present | absent | leave | holiday</summary>
+    /// <summary>present | absent | leave | holiday | official</summary>
     public string  Status     { get; set; } = "present";
     public DateOnly Date      { get; set; }
+    public bool    IsHalfDay  { get; set; }
     public string? CheckIn    { get; set; }
     public string? CheckOut   { get; set; }
     public string? Note       { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+// ── Leave Requests (onay akışı) ────────────────────────────────────────────
+
+public class PersonelLeaveRequest
+{
+    public Guid     Id           { get; set; } = Guid.NewGuid();
+    public Guid     SalonId      { get; set; }
+    public Guid     StylistId    { get; set; }
+    public string   LeaveType    { get; set; } = "Mazeret";
+    public DateOnly StartDate    { get; set; }
+    public DateOnly EndDate      { get; set; }
+    public bool     IsHalfDay    { get; set; }
+    public string?  Note         { get; set; }
+    /// <summary>Pending | Approved | Rejected</summary>
+    public string   Status       { get; set; } = "Pending";
+    public DateTime RequestedAt  { get; set; } = DateTime.UtcNow;
+    public DateTime? ProcessedAt { get; set; }
+    public Guid?    ProcessedBy  { get; set; }
+    public string?  RejectReason { get; set; }
+
+    public Stylist? Stylist { get; set; }
+    public Salon?   Salon   { get; set; }
 }

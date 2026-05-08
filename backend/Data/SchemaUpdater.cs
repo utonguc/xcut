@@ -509,5 +509,30 @@ public static class SchemaUpdater
         ALTER TABLE "StylistLeaves"
             ADD COLUMN IF NOT EXISTS "LeaveType" text NOT NULL DEFAULT 'Mazeret';
 
+        -- IsHalfDay on StylistAttendances + WeeklyOffDays on Salons
+        ALTER TABLE "StylistAttendances"
+            ADD COLUMN IF NOT EXISTS "IsHalfDay" boolean NOT NULL DEFAULT false;
+
+        ALTER TABLE "Salons"
+            ADD COLUMN IF NOT EXISTS "WeeklyOffDays" text NOT NULL DEFAULT '0';
+
+        -- PersonelLeaveRequests table
+        CREATE TABLE IF NOT EXISTS "PersonelLeaveRequests" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid         NOT NULL,
+            "StylistId"    uuid         NOT NULL REFERENCES "Stylists"("Id") ON DELETE CASCADE,
+            "LeaveType"    text         NOT NULL DEFAULT 'Mazeret',
+            "StartDate"    date         NOT NULL,
+            "EndDate"      date         NOT NULL,
+            "IsHalfDay"    boolean      NOT NULL DEFAULT false,
+            "Note"         text,
+            "Status"       varchar(20)  NOT NULL DEFAULT 'Pending',
+            "RequestedAt"  timestamptz  NOT NULL DEFAULT now(),
+            "ProcessedAt"  timestamptz,
+            "ProcessedBy"  uuid,
+            "RejectReason" text
+        );
+        CREATE INDEX IF NOT EXISTS ix_plr_salon_status ON "PersonelLeaveRequests"("SalonId", "Status");
+
         """;
 }
