@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
-import { useSearchParams } from "next/navigation";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Stylist = { id: string; fullName: string; payType: string; fixedSalary: number; commissionRate: number };
@@ -93,9 +92,15 @@ function toCSV(rows: string[][]) { return rows.map(r => r.map(c => `"${String(c)
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function PersonelPage() {
   const now = new Date();
-  const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") as "puantaj"|"izinler"|"talepler"|"ozet") ?? "puantaj";
-  const [tab,       setTab]       = useState<"puantaj"|"izinler"|"talepler"|"ozet">(initialTab);
+  const [tab,       setTab]       = useState<"puantaj"|"izinler"|"talepler"|"ozet">("puantaj");
+
+  // Handle ?tab= URL param without useSearchParams (avoids Suspense requirement)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      if (t === "izinler" || t === "talepler" || t === "ozet") setTab(t);
+    }
+  }, []);
   const [year,      setYear]      = useState(now.getFullYear());
   const [month,     setMonth]     = useState(now.getMonth() + 1);
   // self-only mode
