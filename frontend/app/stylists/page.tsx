@@ -104,9 +104,6 @@ export default function StylistsPage() {
     <AppShell
       title="Stilistler"
       description="Çalışan stilistlerinizi yönetin"
-      actions={
-        <button onClick={() => { setEditStylist(null); setShowModal(true); }} className="btn btn-primary">+ Stilist</button>
-      }
     >
       <div className="toolbar">
         <div style={{ display: "flex", gap: 4 }}>
@@ -127,7 +124,9 @@ export default function StylistsPage() {
         <div style={{ padding: 60, textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>✂️</div>
           <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Stilist bulunamadı</div>
-          <button onClick={() => { setEditStylist(null); setShowModal(true); }} className="btn btn-primary">İlk Stilisti Ekle</button>
+          <div style={{ fontSize: 14, color: "#64748b", maxWidth: 340, margin: "0 auto" }}>
+            Stilist eklemek için <strong>Ayarlar → Kullanıcılar</strong> bölümünden "Stilist" rolüyle bir kullanıcı oluşturun.
+          </div>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>

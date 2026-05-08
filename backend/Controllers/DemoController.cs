@@ -86,6 +86,9 @@ public class DemoController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        // Assign SalonYöneticisi built-in group to the admin
+        await UserGroupSeeder.AssignBuiltInGroupAsync(_db, salon.Id, admin.Id, "SalonYonetici");
+
         _log.LogInformation("Demo kaydı: {SalonName} | {Email} | kullanıcı: {UserName}",
             salon.Name, admin.Email, admin.UserName);
 

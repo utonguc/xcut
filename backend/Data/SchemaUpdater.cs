@@ -538,6 +538,12 @@ public static class SchemaUpdater
         ALTER TABLE "Stylists"
             ADD COLUMN IF NOT EXISTS "ApproverId" uuid;
 
+        -- New built-in roles
+        INSERT INTO "Roles" ("Id", "Name") SELECT gen_random_uuid(), 'Calfa'    WHERE NOT EXISTS (SELECT 1 FROM "Roles" WHERE "Name"='Calfa');
+        INSERT INTO "Roles" ("Id", "Name") SELECT gen_random_uuid(), 'Kiosk'    WHERE NOT EXISTS (SELECT 1 FROM "Roles" WHERE "Name"='Kiosk');
+        INSERT INTO "Roles" ("Id", "Name") SELECT gen_random_uuid(), 'Muhasebe' WHERE NOT EXISTS (SELECT 1 FROM "Roles" WHERE "Name"='Muhasebe');
+        INSERT INTO "Roles" ("Id", "Name") SELECT gen_random_uuid(), 'CRM'      WHERE NOT EXISTS (SELECT 1 FROM "Roles" WHERE "Name"='CRM');
+
         -- Notifications table
         CREATE TABLE IF NOT EXISTS "Notifications" (
             "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 
-type Role           = { id: string; name: string };
+type Role           = { id: string; name: string; displayName: string; description: string; color: string; modules: string[]; isSelfOnly: boolean };
 type UserItem       = { id: string; fullName: string; userName: string; email: string; isActive: boolean; roleId?: string; roleName?: string };
 type OrgSettings    = { id: string; companyName: string; applicationTitle: string; logoUrl?: string; primaryColor: string };
 type BankAccount    = { id: string; bankName: string; accountName: string; iban?: string; isActive: boolean };
@@ -40,7 +40,8 @@ const inputStyle: React.CSSProperties = {
 const ROLE_COLOR: Record<string, string> = {
   SuperAdmin: "#7c3aed", SalonYonetici: "#1d4ed8",
   Stilist: "#065f46", Kasiyer: "#92400e",
-  Resepsiyon: "#0e7490",
+  Resepsiyon: "#0e7490", Calfa: "#6b21a8",
+  Kiosk: "#0891b2", Muhasebe: "#0f766e", CRM: "#be185d",
 };
 
 export default function SettingsPage() {
@@ -176,13 +177,16 @@ function UsersTab() {
   const [users, setUsers]   = useState<UserItem[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg]       = useState<{ text: string; ok: boolean } | null>(null);
+  const [editPw,  setEditPw]  = useState<{ userId: string; pw: string } | null>(null);
 
-  const [fullName, setFullName] = useState("");
-  const [userName, setUserName] = useState("");
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [roleId, setRoleId]     = useState("");
-  const [creating, setCreating] = useState(false);
+  const [fullName,  setFullName]  = useState("");
+  const [userName,  setUserName]  = useState("");
+  const [email,     setEmail]     = useState("");
+  const [password,  setPassword]  = useState("");
+  const [roleId,    setRoleId]    = useState("");
+  const [creating,  setCreating]  = useState(false);
+
+  const selRole = roles.find(r => r.id === roleId);
 
   const load = async () => {
     const [rRes, uRes] = await Promise.all([apiFetch("/Users/roles"), apiFetch("/Users")]);
@@ -195,16 +199,24 @@ function UsersTab() {
   const createUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
-    const r = await apiFetch("/Users", { method: "POST", body: JSON.stringify({ fullName, userName, email, password, roleId }) });
+    const r = await apiFetch("/Users", { method: "POST", body: JSON.stringify({ fullName, userName: userName || undefined, email, password, roleId: roleId || null }) });
     const d = await r.json().catch(() => ({}));
     setCreating(false);
-    setMsg({ text: d.message ?? (r.ok ? "Kullanıcı oluşturuldu." : "Hata."), ok: r.ok });
+    setMsg({ text: (d as {message?: string}).message ?? (r.ok ? "Kullanıcı oluşturuldu." : "Hata."), ok: r.ok });
     if (r.ok) { setFullName(""); setUserName(""); setEmail(""); setPassword(""); setRoleId(""); setShowForm(false); load(); }
   };
 
   const updateUser = async (u: UserItem, newRoleId: string, newActive: boolean) => {
-    await apiFetch(`/Users/${u.id}`, { method: "PUT", body: JSON.stringify({ fullName: u.fullName, email: u.email, roleId: newRoleId, isActive: newActive }) });
+    await apiFetch(`/Users/${u.id}`, { method: "PUT", body: JSON.stringify({ fullName: u.fullName, email: u.email, roleId: newRoleId || null, isActive: newActive }) });
     load();
+  };
+
+  const resetPw = async () => {
+    if (!editPw) return;
+    const r = await apiFetch(`/Users/${editPw.userId}/password`, { method: "PUT", body: JSON.stringify({ newPassword: editPw.pw }) });
+    const d = await r.json().catch(() => ({}));
+    setMsg({ text: (d as {message?: string}).message ?? (r.ok ? "Şifre güncellendi." : "Hata."), ok: r.ok });
+    setEditPw(null);
   };
 
   return (
@@ -229,45 +241,79 @@ function UsersTab() {
       )}
 
       {showForm && (
-        <form onSubmit={createUser} style={{ background: "var(--surface, #fff)", borderRadius: 16, border: "1px solid #eaecf0", padding: 20, marginBottom: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Ad Soyad *</label>
-            <input value={fullName} onChange={e => setFullName(e.target.value)} required style={inputStyle} />
+        <form onSubmit={createUser} style={{ background: "var(--surface, #fff)", borderRadius: 16, border: "1px solid #eaecf0", padding: 20, marginBottom: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Yeni Kullanıcı</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Ad Soyad *</label>
+              <input value={fullName} onChange={e => setFullName(e.target.value)} required style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Kullanıcı Adı <span style={{ color: "#94a3b8" }}>(boş bırakılırsa otomatik)</span></label>
+              <input value={userName} onChange={e => setUserName(e.target.value)} style={inputStyle} placeholder="orn. ahmet42" />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>E-posta *</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Şifre *</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required style={inputStyle} />
+            </div>
+            <div style={{ gridColumn: "span 2" }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Kullanıcı Tipi *</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
+                {roles.map(r => (
+                  <label key={r.id} style={{
+                    display: "flex", flexDirection: "column", gap: 2, padding: "10px 12px", borderRadius: 10,
+                    border: `2px solid ${roleId === r.id ? r.color : "#e4e7ec"}`,
+                    background: roleId === r.id ? `${r.color}10` : "var(--surface,#fff)",
+                    cursor: "pointer",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <input type="radio" name="roleId" value={r.id} checked={roleId === r.id} onChange={() => setRoleId(r.id)} style={{ accentColor: r.color }} />
+                      <span style={{ fontWeight: 700, fontSize: 13, color: roleId === r.id ? r.color : "var(--text,#101828)" }}>{r.displayName}</span>
+                    </div>
+                    <span style={{ fontSize: 11, color: "#64748b", paddingLeft: 20 }}>{r.description}</span>
+                  </label>
+                ))}
+              </div>
+              {selRole?.name === "Stilist" && (
+                <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 12, color: "#166534" }}>
+                  ✓ Bu kullanıcı Stilistler listesinde otomatik görünecek. Ücret ve program ayarlarını Stilistler sayfasından yapabilirsiniz.
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Kullanıcı Adı *</label>
-            <input value={userName} onChange={e => setUserName(e.target.value)} required style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>E-posta *</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Şifre *</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Rol *</label>
-            <select value={roleId} onChange={e => setRoleId(e.target.value)} required style={inputStyle}>
-              <option value="">Seçiniz</option>
-              {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div style={{ display: "flex", alignItems: "flex-end" }}>
-            <button type="submit" disabled={creating} style={{
-              width: "100%", padding: "10px", borderRadius: 10, border: "none",
-              background: creating ? "#a78bfa" : "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
-            }}>{creating ? "Oluşturuluyor..." : "Oluştur"}</button>
-          </div>
+          <button type="submit" disabled={creating || !roleId} style={{
+            padding: "10px 24px", borderRadius: 10, border: "none",
+            background: creating || !roleId ? "#a78bfa" : "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer",
+          }}>{creating ? "Oluşturuluyor..." : "Kullanıcı Oluştur"}</button>
         </form>
+      )}
+
+      {/* Password reset modal */}
+      {editPw && (
+        <>
+          <div onClick={() => setEditPw(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 400 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 401, background: "#fff", borderRadius: 16, padding: 24, width: "min(360px,90vw)", boxShadow: "0 16px 48px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 14 }}>Şifre Sıfırla</div>
+            <input type="password" value={editPw.pw} onChange={e => setEditPw(p => p ? { ...p, pw: e.target.value } : null)} placeholder="Yeni şifre (min 6 karakter)" style={{ ...inputStyle, marginBottom: 14 }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setEditPw(null)} style={{ flex: 1, padding: 10, borderRadius: 10, border: "1px solid #e4e7ec", background: "#fff", cursor: "pointer" }}>İptal</button>
+              <button onClick={resetPw} style={{ flex: 2, padding: 10, borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, cursor: "pointer" }}>Kaydet</button>
+            </div>
+          </div>
+        </>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {users.map(u => {
           const rc = ROLE_COLOR[u.roleName ?? ""] ?? "#374151";
+          const role = roles.find(r => r.id === u.roleId);
           return (
             <div key={u.id} style={{ background: "var(--surface, #fff)", borderRadius: 14, border: "1px solid #eaecf0", padding: "14px 20px",
-              display: "flex", alignItems: "center", gap: 16 }}>
+              display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
               <div style={{ width: 40, height: 40, borderRadius: "50%", background: rc, color: "#fff",
                 display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, flexShrink: 0 }}>
                 {u.fullName.charAt(0).toUpperCase()}
@@ -278,12 +324,16 @@ function UsersTab() {
               </div>
               <span style={{
                 fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 999,
-                background: `${rc}20`, color: rc, border: `1px solid ${rc}40`,
-              }}>{u.roleName ?? "—"}</span>
+                background: `${rc}20`, color: rc, border: `1px solid ${rc}40`, whiteSpace: "nowrap",
+              }}>{role?.displayName ?? u.roleName ?? "—"}</span>
               <select value={u.roleId ?? ""} onChange={e => updateUser(u, e.target.value, u.isActive)}
-                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e4e7ec", fontSize: 12, maxWidth: 150 }}>
-                {roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #e4e7ec", fontSize: 12, maxWidth: 180 }}>
+                <option value="">— Rol yok</option>
+                {roles.map(r => <option key={r.id} value={r.id}>{r.displayName}</option>)}
               </select>
+              <button onClick={() => setEditPw({ userId: u.id, pw: "" })} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #e4e7ec", background: "#fff", cursor: "pointer", fontSize: 12 }}>
+                🔑 Şifre
+              </button>
               <button onClick={() => updateUser(u, u.roleId ?? "", !u.isActive)} style={{
                 padding: "6px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 12,
                 background: u.isActive ? "#dcfce7" : "#fef3f2",
