@@ -126,8 +126,13 @@ public class StylistsController : ControllerBase
         s.CommissionRate  = req.CommissionRate;
         s.ApproverId      = req.ApproverId;
 
+        string? approverName2 = null;
+        if (s.ApproverId.HasValue)
+            approverName2 = await _db.Users.Where(u => u.Id == s.ApproverId.Value).Select(u => u.FullName).FirstOrDefaultAsync();
         await _db.SaveChangesAsync();
-        return Ok(Map(s));
+        return Ok(MapWithApprover(s, s.ApproverId.HasValue && approverName2 != null
+            ? new Dictionary<Guid, string> { [s.ApproverId.Value] = approverName2 }
+            : new()));
     }
 
     [Authorize(Roles = "SuperAdmin,SalonYonetici")]
