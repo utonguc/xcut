@@ -33,8 +33,9 @@ public class ServicesController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
-        var q = _db.Services.Where(x => x.SalonId == salonId.Value)
-            .Include(x => x.ServiceCategory);
+        IQueryable<Service> q = _db.Services
+            .Include(x => x.ServiceCategory)
+            .Where(x => x.SalonId == salonId.Value);
         if (activeOnly) q = q.Where(x => x.IsActive);
         if (!string.IsNullOrWhiteSpace(categoryId) && Guid.TryParse(categoryId, out var catGuid))
             q = q.Where(x => x.CategoryId == catGuid);
