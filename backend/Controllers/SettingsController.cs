@@ -112,4 +112,21 @@ public class SettingsController : ControllerBase
 
         return Ok(new { logoUrl = url });
     }
+
+    // GET /api/Settings/users — list salon users (for approver dropdowns etc.)
+    [HttpGet("users")]
+    public async Task<IActionResult> GetUsers()
+    {
+        var user = await GetCurrentUserAsync();
+        if (user is null) return Unauthorized();
+
+        var users = await _db.Users
+            .Where(u => u.SalonId == user.SalonId && u.IsActive)
+            .Include(u => u.Role)
+            .OrderBy(u => u.FullName)
+            .Select(u => new { u.Id, u.FullName, u.Email, Role = u.Role != null ? u.Role.Name : null })
+            .ToListAsync();
+
+        return Ok(users);
+    }
 }

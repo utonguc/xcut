@@ -28,6 +28,10 @@ public class Stylist
     public string  PayType     { get; set; } = "commission";
     public decimal FixedSalary { get; set; } = 0;
 
+    // ── İzin Onaycısı ─────────────────────────────────────────────────────────
+    /// <summary>İzin taleplerini onaylayacak kullanıcının Id'si (null = salon yöneticisi)</summary>
+    public Guid? ApproverId { get; set; }
+
     // ── Meta ──────────────────────────────────────────────────────────────────
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public ICollection<Appointment> Appointments { get; set; } = new List<Appointment>();

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
@@ -28,6 +29,59 @@ public class PersonelController : ControllerBase
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
         return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    // Returns (isSelfOnly, linkedStylistId) for the calling user
+    private async Task<(bool isSelfOnly, Guid? stylistId)> GetSelfContextAsync()
+    {
+        var userId = GetCurrentUserId();
+        if (userId is null) return (false, null);
+
+        var user = await _db.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId.Value);
+        if (user is null) return (false, null);
+
+        bool isSelfOnly = false;
+        var groups = await _db.UserPermissionGroups
+            .Where(x => x.UserId == userId.Value)
+            .Include(x => x.Group)
+            .Select(x => x.Group!)
+            .ToListAsync();
+
+        if (groups.Count > 0)
+            isSelfOnly = groups.Any(g => g.IsSelfOnly);
+        else
+            isSelfOnly = user.Role?.Name == "Stilist";
+
+        if (!isSelfOnly) return (false, null);
+
+        var stylist = await _db.Stylists
+            .Where(s => s.SalonId == user.SalonId && s.Email != null && s.Email.ToLower() == user.Email.ToLower())
+            .Select(s => (Guid?)s.Id)
+            .FirstOrDefaultAsync();
+
+        return (true, stylist);
+    }
+
+    private async Task CreateNotificationAsync(Guid salonId, Guid userId, string title, string message, string? link = null)
+    {
+        // avoid duplicate via dedupeKey = userId:message
+        var dedupeKey = $"leave:{userId}:{message.GetHashCode()}";
+        var exists = await _db.Notifications.AnyAsync(n => n.DedupeKey == dedupeKey && !n.IsRead);
+        if (exists) return;
+
+        _db.Notifications.Add(new Notification
+        {
+            SalonId     = salonId,
+            UserId      = userId,
+            Title       = title,
+            Message     = message,
+            Type        = "info",
+            Link        = link,
+            DedupeKey   = dedupeKey,
+        });
+        await _db.SaveChangesAsync();
     }
 
     // ── Weekly Off Days ───────────────────────────────────────────────────────
@@ -64,11 +118,18 @@ public class PersonelController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
+        var (isSelfOnly, selfStylistId) = await GetSelfContextAsync();
+
         var from = new DateOnly(year, month, 1);
         var to   = from.AddMonths(1).AddDays(-1);
 
-        var rows = await _db.StylistAttendances
-            .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to)
+        var q = _db.StylistAttendances
+            .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to);
+
+        if (isSelfOnly && selfStylistId.HasValue)
+            q = q.Where(a => a.StylistId == selfStylistId.Value);
+
+        var rows = await q
             .Select(a => new
             {
                 a.Id, a.StylistId, a.Status, a.IsHalfDay,
@@ -80,12 +141,16 @@ public class PersonelController : ControllerBase
         return Ok(rows);
     }
 
-    // PUT /api/Personel/attendance — upsert single day
+    // PUT /api/Personel/attendance — upsert single day (managers only, not self-only users)
     [HttpPut("attendance")]
     public async Task<IActionResult> UpsertAttendance([FromBody] UpsertAttendanceRequest req)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly, _) = await GetSelfContextAsync();
+        if (isSelfOnly) return Forbid();
+
         if (!DateOnly.TryParse(req.Date, out var date)) return BadRequest(new { message = "Geçersiz tarih." });
 
         var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == req.StylistId && s.SalonId == salonId.Value);
@@ -121,12 +186,16 @@ public class PersonelController : ControllerBase
         return Ok();
     }
 
-    // DELETE /api/Personel/attendance?stylistId=&date=
+    // DELETE /api/Personel/attendance?stylistId=&date= (managers only)
     [HttpDelete("attendance")]
     public async Task<IActionResult> DeleteAttendance([FromQuery] Guid stylistId, [FromQuery] string date)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly, _) = await GetSelfContextAsync();
+        if (isSelfOnly) return Forbid();
+
         if (!DateOnly.TryParse(date, out var d)) return BadRequest(new { message = "Geçersiz tarih." });
 
         var row = await _db.StylistAttendances
@@ -148,12 +217,17 @@ public class PersonelController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
+        var (isSelfOnly, selfStylistId) = await GetSelfContextAsync();
+
         var q = _db.StylistLeaves
             .Include(l => l.Stylist)
             .Where(l => l.Stylist!.SalonId == salonId.Value)
             .AsQueryable();
 
-        if (stylistId.HasValue) q = q.Where(l => l.StylistId == stylistId.Value);
+        if (isSelfOnly && selfStylistId.HasValue)
+            q = q.Where(l => l.StylistId == selfStylistId.Value);
+        else if (stylistId.HasValue)
+            q = q.Where(l => l.StylistId == stylistId.Value);
 
         var leaves = await q
             .OrderByDescending(l => l.StartAtUtc)
@@ -178,6 +252,9 @@ public class PersonelController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
+        var (isSelfOnly2, _) = await GetSelfContextAsync();
+        if (isSelfOnly2) return Forbid();
+
         if (!DateOnly.TryParse(req.StartDate, out var start)) return BadRequest(new { message = "Geçersiz başlangıç tarihi." });
         if (!DateOnly.TryParse(req.EndDate,   out var end))   return BadRequest(new { message = "Geçersiz bitiş tarihi." });
         if (start > end) return BadRequest(new { message = "Bitiş tarihi başlangıçtan önce olamaz." });
@@ -199,12 +276,15 @@ public class PersonelController : ControllerBase
         return Ok(new { leave.Id });
     }
 
-    // DELETE /api/Personel/leaves/{id}
+    // DELETE /api/Personel/leaves/{id} (managers only)
     [HttpDelete("leaves/{id:guid}")]
     public async Task<IActionResult> DeleteLeave(Guid id)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly3, _) = await GetSelfContextAsync();
+        if (isSelfOnly3) return Forbid();
 
         var leave = await _db.StylistLeaves
             .Include(l => l.Stylist)
@@ -225,10 +305,15 @@ public class PersonelController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
+        var (isSelfOnly4, selfStylistId4) = await GetSelfContextAsync();
+
         var q = _db.PersonelLeaveRequests
             .Include(r => r.Stylist)
             .Where(r => r.SalonId == salonId.Value)
             .AsQueryable();
+
+        if (isSelfOnly4 && selfStylistId4.HasValue)
+            q = q.Where(r => r.StylistId == selfStylistId4.Value);
 
         if (!string.IsNullOrEmpty(status)) q = q.Where(r => r.Status == status);
 
@@ -279,15 +364,40 @@ public class PersonelController : ControllerBase
         };
         _db.PersonelLeaveRequests.Add(item);
         await _db.SaveChangesAsync();
+
+        // Notify the approver (or salon manager if no approver set)
+        Guid? notifyUserId = stylist.ApproverId;
+        if (!notifyUserId.HasValue)
+        {
+            notifyUserId = await _db.Users
+                .Where(u => u.SalonId == salonId.Value && u.IsActive && u.Role != null &&
+                           (u.Role.Name == "SalonYonetici" || u.Role.Name == "Admin"))
+                .Select(u => (Guid?)u.Id)
+                .FirstOrDefaultAsync();
+        }
+        if (notifyUserId.HasValue)
+        {
+            await CreateNotificationAsync(
+                salonId.Value,
+                notifyUserId.Value,
+                "Yeni İzin Talebi",
+                $"{stylist.FullName} — {req.LeaveType} izin talebinde bulundu ({req.StartDate} / {req.EndDate})",
+                "/personel?tab=talepler"
+            );
+        }
+
         return Ok(new { item.Id });
     }
 
-    // PATCH /api/Personel/leave-requests/{id}/approve
+    // PATCH /api/Personel/leave-requests/{id}/approve (managers only)
     [HttpPatch("leave-requests/{id:guid}/approve")]
     public async Task<IActionResult> ApproveLeaveRequest(Guid id)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
+
+        var (isSelfOnlyA, _) = await GetSelfContextAsync();
+        if (isSelfOnlyA) return Forbid();
 
         var req = await _db.PersonelLeaveRequests
             .FirstOrDefaultAsync(r => r.Id == id && r.SalonId == salonId.Value);
@@ -341,12 +451,15 @@ public class PersonelController : ControllerBase
         return Ok();
     }
 
-    // PATCH /api/Personel/leave-requests/{id}/reject
+    // PATCH /api/Personel/leave-requests/{id}/reject (managers only — self-only users can only submit, not approve/reject)
     [HttpPatch("leave-requests/{id:guid}/reject")]
     public async Task<IActionResult> RejectLeaveRequest(Guid id, [FromBody] RejectLeaveBody req)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly5, _) = await GetSelfContextAsync();
+        if (isSelfOnly5) return Forbid();
 
         var item = await _db.PersonelLeaveRequests
             .FirstOrDefaultAsync(r => r.Id == id && r.SalonId == salonId.Value);
@@ -376,8 +489,13 @@ public class PersonelController : ControllerBase
         int workingDays = Enumerable.Range(0, to.DayNumber - from.DayNumber + 1)
             .Count(d => { var dow = from.AddDays(d).DayOfWeek; return dow != DayOfWeek.Sunday; });
 
-        var stylists = await _db.Stylists
-            .Where(s => s.SalonId == salonId.Value && s.IsActive).ToListAsync();
+        var (isSelfOnly6, selfStylistId6) = await GetSelfContextAsync();
+
+        var stylistsQ = _db.Stylists.Where(s => s.SalonId == salonId.Value && s.IsActive);
+        if (isSelfOnly6 && selfStylistId6.HasValue)
+            stylistsQ = stylistsQ.Where(s => s.Id == selfStylistId6.Value);
+
+        var stylists = await stylistsQ.ToListAsync();
         var attendances = await _db.StylistAttendances
             .Where(a => a.SalonId == salonId.Value && a.Date >= from && a.Date <= to).ToListAsync();
 

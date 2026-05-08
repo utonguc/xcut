@@ -42,7 +42,10 @@ type Org = {
 
 type Notification = {
   id: string;
+  title?: string;
   message: string;
+  type?: string;
+  link?: string;
   createdAt: string;
   isRead: boolean;
 };
@@ -518,19 +521,36 @@ export default function AppShell({ title, description, actions, children }: Prop
                   boxShadow: "0 8px 32px rgba(15,23,42,0.12)", zIndex: 201,
                   overflow: "hidden",
                 }}>
-                  <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border,#eaecf0)", fontWeight: 800, fontSize: 14 }}>
-                    Bildirimler {unreadCount > 0 && <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 999, background: "#7c3aed", color: "#fff", fontSize: 11, fontWeight: 700 }}>{unreadCount}</span>}
+                  <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border,#eaecf0)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>Bildirimler {unreadCount > 0 && <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 999, background: "#7c3aed", color: "#fff", fontSize: 11, fontWeight: 700 }}>{unreadCount}</span>}</span>
+                    {unreadCount > 0 && (
+                      <button onClick={async () => {
+                        await apiFetch("/Notifications/read-all", { method: "PATCH" });
+                        setNotifs(prev => prev.map(n => ({ ...n, isRead: true })));
+                      }} style={{ fontSize: 11, color: "#7c3aed", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}>
+                        Tümünü oku
+                      </button>
+                    )}
                   </div>
                   <div style={{ maxHeight: 320, overflowY: "auto" }}>
                     {notifs.length === 0 ? (
                       <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Bildirim yok</div>
                     ) : notifs.map(n => (
-                      <div key={n.id} style={{
-                        padding: "12px 16px", borderBottom: "1px solid var(--border,#f2f4f7)",
-                        background: n.isRead ? "transparent" : "var(--primary-light,#ede9fe)" + "44",
-                        fontSize: 13,
-                      }}>
-                        <div style={{ fontWeight: n.isRead ? 400 : 700, color: "var(--text,#101828)" }}>{n.message}</div>
+                      <div key={n.id}
+                        onClick={async () => {
+                          if (!n.isRead) {
+                            await apiFetch(`/Notifications/${n.id}/read`, { method: "PATCH" });
+                            setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x));
+                          }
+                          if (n.link) { setNotifOpen(false); router.push(n.link); }
+                        }}
+                        style={{
+                          padding: "12px 16px", borderBottom: "1px solid var(--border,#f2f4f7)",
+                          background: n.isRead ? "transparent" : "var(--primary-light,#ede9fe)" + "44",
+                          fontSize: 13, cursor: n.link ? "pointer" : "default",
+                        }}>
+                        {n.title && <div style={{ fontWeight: 700, fontSize: 12, color: "#7c3aed", marginBottom: 2 }}>{n.title}</div>}
+                        <div style={{ fontWeight: n.isRead ? 400 : 600, color: "var(--text,#101828)" }}>{n.message}</div>
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 3 }}>{new Date(n.createdAt).toLocaleString("tr-TR")}</div>
                       </div>
                     ))}

@@ -534,5 +534,24 @@ public static class SchemaUpdater
         );
         CREATE INDEX IF NOT EXISTS ix_plr_salon_status ON "PersonelLeaveRequests"("SalonId", "Status");
 
+        -- ApproverId on Stylists
+        ALTER TABLE "Stylists"
+            ADD COLUMN IF NOT EXISTS "ApproverId" uuid;
+
+        -- Notifications table
+        CREATE TABLE IF NOT EXISTS "Notifications" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid         NOT NULL,
+            "UserId"       uuid         NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "Title"        text         NOT NULL DEFAULT '',
+            "Message"      text         NOT NULL DEFAULT '',
+            "Type"         varchar(20)  NOT NULL DEFAULT 'info',
+            "Link"         text,
+            "IsRead"       boolean      NOT NULL DEFAULT false,
+            "DedupeKey"    varchar(200),
+            "CreatedAtUtc" timestamptz  NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_notif_user_unread ON "Notifications"("UserId", "IsRead");
+
         """;
 }

@@ -19,7 +19,11 @@ type Stylist = {
   fixedSalary?: number;
   commissionRate?: number;
   appointmentsCount?: number;
+  approverId?: string;
+  approverName?: string;
 };
+
+type SalonUser = { id: string; fullName: string; email: string; role?: string };
 
 type ScheduleDay = {
   dayOfWeek: number;
@@ -169,10 +173,16 @@ function StylistModal({ stylist, onClose, onSaved }: { stylist: Stylist | null; 
     payType:       stylist?.payType ?? "commission",
     fixedSalary:   stylist?.fixedSalary ?? 0,
     commissionRate: stylist?.commissionRate ?? 0,
+    approverId:    stylist?.approverId ?? "",
   });
-  const [photo,   setPhoto]   = useState<File | null>(null);
-  const [saving,  setSaving]  = useState(false);
-  const [error,   setError]   = useState("");
+  const [photo,    setPhoto]    = useState<File | null>(null);
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState("");
+  const [users,    setUsers]    = useState<SalonUser[]>([]);
+
+  useEffect(() => {
+    apiFetch("/Settings/users").then(r => r.ok ? r.json() : []).then(setUsers);
+  }, []);
 
   const NUMERIC_FIELDS = ["fixedSalary", "commissionRate"];
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -187,9 +197,10 @@ function StylistModal({ stylist, onClose, onSaved }: { stylist: Stylist | null; 
     if (!form.fullName) { setError("Ad zorunludur."); return; }
     setSaving(true);
     try {
+      const payload = { ...form, approverId: form.approverId || null };
       const res = isEdit
-        ? await apiFetch(`/Stylists/${stylist!.id}`, { method: "PUT", body: JSON.stringify(form) })
-        : await apiFetch("/Stylists", { method: "POST", body: JSON.stringify(form) });
+        ? await apiFetch(`/Stylists/${stylist!.id}`, { method: "PUT", body: JSON.stringify(payload) })
+        : await apiFetch("/Stylists", { method: "POST", body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.message ?? "Kayıt hatası"); return; }
       const savedId: string = isEdit ? stylist!.id : await res.json();
       if (photo) {
@@ -253,6 +264,16 @@ function StylistModal({ stylist, onClose, onSaved }: { stylist: Stylist | null; 
               )}
             </div>
           </div>
+          {/* Approver */}
+          <div style={{ borderTop: "1px solid var(--border,#eaecf0)", paddingTop: 14 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>İzin Onaycısı</label>
+            <select value={form.approverId} onChange={set("approverId")} style={s}>
+              <option value="">— Salon yöneticisi (varsayılan)</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.fullName}{u.role ? ` · ${u.role}` : ""}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Bu personelin izin taleplerini kimin onaylayacağını seçin.</div>
+          </div>
+
           <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={form.isActive} onChange={set("isActive")} style={{ width: 18, height: 18, accentColor: "#7c3aed" }} />
             <span style={{ fontSize: 14, fontWeight: 600 }}>Aktif</span>

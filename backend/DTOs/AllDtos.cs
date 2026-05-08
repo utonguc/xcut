@@ -107,6 +107,7 @@ public class CreateStylistRequest
     public string  PayType         { get; set; } = "commission";
     public decimal FixedSalary     { get; set; } = 0;
     public decimal CommissionRate  { get; set; } = 0;
+    public Guid?   ApproverId      { get; set; }
 }
 
 public class UpdateStylistRequest : CreateStylistRequest
@@ -131,6 +132,8 @@ public class StylistResponse
     public decimal FixedSalary     { get; set; }
     public decimal CommissionRate  { get; set; }
     public DateTime CreatedAtUtc   { get; set; }
+    public Guid?   ApproverId      { get; set; }
+    public string? ApproverName    { get; set; }
 }
 
 // ── Service Catalog ───────────────────────────────────────────────────────────

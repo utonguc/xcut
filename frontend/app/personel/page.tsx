@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Stylist = { id: string; fullName: string; payType: string; fixedSalary: number; commissionRate: number };
@@ -92,9 +93,14 @@ function toCSV(rows: string[][]) { return rows.map(r => r.map(c => `"${String(c)
 /* ═══════════════════════════════════════════════════════════════════ */
 export default function PersonelPage() {
   const now = new Date();
-  const [tab,       setTab]       = useState<"puantaj"|"izinler"|"talepler"|"ozet">("puantaj");
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get("tab") as "puantaj"|"izinler"|"talepler"|"ozet") ?? "puantaj";
+  const [tab,       setTab]       = useState<"puantaj"|"izinler"|"talepler"|"ozet">(initialTab);
   const [year,      setYear]      = useState(now.getFullYear());
   const [month,     setMonth]     = useState(now.getMonth() + 1);
+  // self-only mode
+  const [isSelfOnly,  setIsSelfOnly]  = useState(false);
+  const [myStylistId, setMyStylistId] = useState<string | null>(null);
   const [stylists,  setStylists]  = useState<Stylist[]>([]);
   const [attendance,setAttendance]= useState<AttendanceRow[]>([]);
   const [leaves,    setLeaves]    = useState<Leave[]>([]);
@@ -139,7 +145,8 @@ export default function PersonelPage() {
   /* ── Load ───────────────────────────────────────────────────────── */
   const load = useCallback(async () => {
     setLoading(true);
-    const [sRes, aRes, lRes, rRes, sumRes, woRes] = await Promise.all([
+    const [meRes, sRes, aRes, lRes, rRes, sumRes, woRes] = await Promise.all([
+      apiFetch("/Auth/me"),
       apiFetch("/Stylists?isActive=true"),
       apiFetch(`/Personel/attendance?year=${year}&month=${month}`),
       apiFetch("/Personel/leaves"),
@@ -147,7 +154,21 @@ export default function PersonelPage() {
       apiFetch(`/Personel/summary?year=${year}&month=${month}`),
       apiFetch("/Personel/weekly-off"),
     ]);
-    if (sRes.ok)   setStylists(await sRes.json());
+
+    let selfOnly = false;
+    let selfStylistId: string | null = null;
+    if (meRes.ok) {
+      const me = await meRes.json();
+      selfOnly = me.isSelfOnly ?? false;
+      selfStylistId = me.stylistId ?? null;
+      setIsSelfOnly(selfOnly);
+      setMyStylistId(selfStylistId);
+    }
+
+    if (sRes.ok) {
+      const all: Stylist[] = await sRes.json();
+      setStylists(selfOnly && selfStylistId ? all.filter(s => s.id === selfStylistId) : all);
+    }
     if (aRes.ok)   setAttendance(await aRes.json());
     if (lRes.ok)   setLeaves(await lRes.json());
     if (rRes.ok)   setLeaveReqs(await rRes.json());
@@ -205,6 +226,7 @@ export default function PersonelPage() {
   };
 
   const openCellMenu = (e: React.MouseEvent, stylistId: string, day: number) => {
+    if (isSelfOnly) return; // personel yalnızca görüntüleyebilir
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setCellMenu({ stylistId, day, top: rect.bottom + 4, left: Math.min(rect.left, window.innerWidth - 240) });
@@ -260,9 +282,11 @@ export default function PersonelPage() {
   /* ── Leave request CRUD ─────────────────────────────────────────── */
   const submitReq = async () => {
     setReqErr("");
-    if (!reqForm.stylistId || !reqForm.startDate || !reqForm.endDate) { setReqErr("Personel ve tarihler zorunlu."); return; }
+    const reqStylistId = isSelfOnly && myStylistId ? myStylistId : reqForm.stylistId;
+    if (!reqStylistId || !reqForm.startDate || !reqForm.endDate) { setReqErr("Personel ve tarihler zorunlu."); return; }
     setReqSav(true);
-    const r = await apiFetch("/Personel/leave-requests", { method: "POST", body: JSON.stringify({ stylistId: reqForm.stylistId, startDate: reqForm.startDate, endDate: reqForm.endDate, leaveType: reqForm.leaveType, isHalfDay: reqForm.isHalfDay, note: reqForm.note || null }) });
+    const reqStylistIdFinal = isSelfOnly && myStylistId ? myStylistId : reqForm.stylistId;
+    const r = await apiFetch("/Personel/leave-requests", { method: "POST", body: JSON.stringify({ stylistId: reqStylistIdFinal, startDate: reqForm.startDate, endDate: reqForm.endDate, leaveType: reqForm.leaveType, isHalfDay: reqForm.isHalfDay, note: reqForm.note || null }) });
     if (r.ok) { await load(); setReqForm(p => ({ ...p, startDate: "", endDate: "", note: "", isHalfDay: false })); }
     else { const d = await r.json().catch(() => ({})); setReqErr((d as {message?: string}).message ?? "Kayıt hatası."); }
     setReqSav(false);
@@ -318,7 +342,17 @@ export default function PersonelPage() {
   /* ══════════════════════════════════════════════════════════════════ */
   return (
     <AppShell title="Personel Yönetimi" description="Puantaj, izin ve maaş özeti">
-      <style>{`@media print{.no-print{display:none!important}}`}</style>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: white !important; }
+          .card { border: 1px solid #ccc !important; box-shadow: none !important; }
+          table { page-break-inside: auto; font-size: 9px !important; }
+          tr { page-break-inside: avoid; }
+          th, td { padding: 3px 4px !important; }
+          * { color-adjust: exact; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      `}</style>
 
       {/* ── Top bar ── */}
       <div className="no-print" style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20, flexWrap:"wrap" }}>
@@ -363,8 +397,8 @@ export default function PersonelPage() {
 
         {/* ══ PUANTAJ ══ */}
         {tab==="puantaj" && (<>
-          {/* Weekly off config */}
-          <div className="no-print card" style={{ padding:"12px 16px", marginBottom:12 }}>
+          {/* Weekly off config — managers only */}
+          {!isSelfOnly && <div className="no-print card" style={{ padding:"12px 16px", marginBottom:12 }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span style={{ fontWeight:700, fontSize:13 }}>Hafta Tatili Günleri</span>
               <button onClick={() => setWoExpanded(!woExpanded)} className="btn btn-ghost" style={{ fontSize:12, padding:"4px 10px" }}>{woExpanded ? "Kapat" : "Düzenle"}</button>
@@ -391,12 +425,12 @@ export default function PersonelPage() {
                 </button>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Puantaj table */}
           <div style={{ background:"#fff", borderRadius:16, border:"1px solid #eaecf0", overflow:"auto" }}>
             <div className="no-print" style={{ padding:"8px 16px", borderBottom:"1px solid #f1f5f9", fontSize:11, color:"#94a3b8" }}>
-              Hücreye tıkla → seçenekler{saving && " · Kaydediliyor..."}
+              {isSelfOnly ? "Kendi puantajın" : `Hücreye tıkla → seçenekler${saving ? " · Kaydediliyor..." : ""}`}
             </div>
             <div style={{ fontWeight:700, fontSize:13, padding:"8px 16px", borderBottom:"1px solid #f1f5f9" }}>{MONTHS[month-1]} {year}</div>
             <table style={{ borderCollapse:"collapse", fontSize:11, minWidth:"max-content" }}>
@@ -508,8 +542,8 @@ export default function PersonelPage() {
         {/* ══ İZİNLER ══ */}
         {tab==="izinler" && (
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-            {/* Add form */}
-            <div className="card no-print" style={{ padding:20 }}>
+            {/* Add form — managers only */}
+            {!isSelfOnly && <div className="card no-print" style={{ padding:20 }}>
               <div style={{ fontWeight:800, fontSize:15, marginBottom:14 }}>Yeni İzin Kaydı</div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(170px,1fr))", gap:10, marginBottom:12 }}>
                 <div><label style={{ fontSize:11, fontWeight:700, color:"#344054", display:"block", marginBottom:5 }}>Personel *</label>
@@ -530,7 +564,7 @@ export default function PersonelPage() {
               </div>
               {leaveErr && <div style={{ padding:"8px 12px", borderRadius:8, background:"#fef2f2", color:"#b42318", fontSize:13, marginBottom:10 }}>⚠ {leaveErr}</div>}
               <button onClick={addLeave} disabled={leaveSav} className="btn btn-primary" style={{ minWidth:140, opacity:leaveSav?.7:1 }}>{leaveSav?"Kaydediliyor...":"+ İzin Ekle"}</button>
-            </div>
+            </div>}
 
             {/* Leave list */}
             <div style={{ background:"#fff", borderRadius:16, border:"1px solid #eaecf0", overflow:"hidden" }}>
@@ -560,9 +594,9 @@ export default function PersonelPage() {
                           <td style={{ padding:"10px 14px", fontSize:12 }}>{l.endDate}</td>
                           <td style={{ padding:"10px 14px", fontSize:12, fontWeight:700 }}>{leaveDays(l.startDate,l.endDate)}</td>
                           <td style={{ padding:"10px 14px", fontSize:12, color:"#64748b" }}>{l.reason??"—"}</td>
-                          <td style={{ padding:"10px 14px" }}>
+                          {!isSelfOnly && <td style={{ padding:"10px 14px" }}>
                             <button onClick={()=>deleteLeave(l.id)} className="no-print" style={{ background:"none", border:"none", color:"#ef4444", cursor:"pointer", fontSize:18, lineHeight:1 }}>×</button>
-                          </td>
+                          </td>}
                         </tr>
                       );
                     })}
@@ -590,13 +624,15 @@ export default function PersonelPage() {
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             {/* Submit new request */}
             <div className="card no-print" style={{ padding:20 }}>
-              <div style={{ fontWeight:800, fontSize:15, marginBottom:14 }}>Yeni İzin Talebi Oluştur</div>
+              <div style={{ fontWeight:800, fontSize:15, marginBottom:14 }}>
+                {isSelfOnly ? "İzin Talebi Oluştur" : "Yeni İzin Talebi Oluştur"}
+              </div>
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(170px,1fr))", gap:10, marginBottom:12 }}>
-                <div><label style={{ fontSize:11, fontWeight:700, color:"#344054", display:"block", marginBottom:5 }}>Personel *</label>
+                {!isSelfOnly && <div><label style={{ fontSize:11, fontWeight:700, color:"#344054", display:"block", marginBottom:5 }}>Personel *</label>
                   <select value={reqForm.stylistId} onChange={e=>setReqForm(p=>({...p,stylistId:e.target.value}))} style={{...inp,width:"100%"}}>
                     <option value="">Seçin...</option>
                     {stylists.map(s=><option key={s.id} value={s.id}>{s.fullName}</option>)}
-                  </select></div>
+                  </select></div>}
                 <div><label style={{ fontSize:11, fontWeight:700, color:"#344054", display:"block", marginBottom:5 }}>İzin Türü *</label>
                   <select value={reqForm.leaveType} onChange={e=>setReqForm(p=>({...p,leaveType:e.target.value as LTValue}))} style={{...inp,width:"100%"}}>
                     {LEAVE_TYPES.map(t=><option key={t.value} value={t.value}>{t.abbr} — {t.label}</option>)}
@@ -650,13 +686,13 @@ export default function PersonelPage() {
                               <td style={{ padding:"10px 14px", fontSize:12, fontWeight:700 }}>{leaveDays(r.startDate,r.endDate)}{r.isHalfDay?" (½)":""}</td>
                               <td style={{ padding:"10px 14px", fontSize:12, color:"#64748b", maxWidth:160 }}>{r.note??"—"}{r.rejectReason && <><br/><span style={{ color:"#dc2626" }}>Red sebebi: {r.rejectReason}</span></>}</td>
                               <td style={{ padding:"10px 14px" }}>
-                                {s==="Pending" ? (
+                                {s==="Pending" && !isSelfOnly ? (
                                   <div className="no-print" style={{ display:"flex", gap:6 }}>
                                     <button onClick={()=>approve(r.id)} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#dcfce7", color:"#166534", fontWeight:700, fontSize:12, cursor:"pointer" }}>Onayla</button>
                                     <button onClick={()=>{ setRejectId(r.id); setRejectReason(""); }} style={{ padding:"5px 12px", borderRadius:7, border:"none", background:"#fee2e2", color:"#991b1b", fontWeight:700, fontSize:12, cursor:"pointer" }}>Reddet</button>
                                   </div>
                                 ) : (
-                                  <span style={{ padding:"3px 10px", borderRadius:20, background:cfg.bg, color:cfg.color, fontSize:11, fontWeight:700 }}>{cfg.label}</span>
+                                  <span style={{ padding:"3px 10px", borderRadius:20, background:cfg.bg, color:cfg.color, fontSize:11, fontWeight:700 }}>{s==="Pending"?"Beklemede":cfg.label}</span>
                                 )}
                               </td>
                             </tr>

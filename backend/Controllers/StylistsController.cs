@@ -39,19 +39,12 @@ public class StylistsController : ControllerBase
         var q = _db.Stylists.Where(x => x.SalonId == salonId.Value);
         if (isActive.HasValue) q = q.Where(x => x.IsActive == isActive.Value);
 
-        var items = await q
-            .OrderBy(x => x.FullName)
-            .Select(x => new StylistResponse
-            {
-                Id = x.Id, FullName = x.FullName, Specialty = x.Specialty,
-                Phone = x.Phone, Email = x.Email, PhotoUrl = x.PhotoUrl,
-                Biography = x.Biography, Specializations = x.Specializations,
-                ExperienceYears = x.ExperienceYears, IsActive = x.IsActive,
-                PayType = x.PayType, FixedSalary = x.FixedSalary, CommissionRate = x.CommissionRate,
-                CreatedAtUtc = x.CreatedAtUtc
-            })
-            .ToListAsync();
+        var stylists = await q.OrderBy(x => x.FullName).ToListAsync();
+        var approverIds = stylists.Where(x => x.ApproverId.HasValue).Select(x => x.ApproverId!.Value).Distinct().ToList();
+        var approvers = await _db.Users.Where(u => approverIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.FullName }).ToDictionaryAsync(u => u.Id, u => u.FullName);
 
+        var items = stylists.Select(x => MapWithApprover(x, approvers)).ToList();
         return Ok(items);
     }
 
@@ -64,7 +57,13 @@ public class StylistsController : ControllerBase
         var s = await _db.Stylists.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (s is null) return NotFound(new { message = "Stilist bulunamadı." });
 
-        return Ok(Map(s));
+        string? approverName = null;
+        if (s.ApproverId.HasValue)
+            approverName = await _db.Users.Where(u => u.Id == s.ApproverId.Value).Select(u => u.FullName).FirstOrDefaultAsync();
+
+        return Ok(MapWithApprover(s, s.ApproverId.HasValue && approverName != null
+            ? new Dictionary<Guid, string> { [s.ApproverId.Value] = approverName }
+            : new()));
     }
 
     [Authorize(Roles = "SuperAdmin,SalonYonetici")]
@@ -92,6 +91,7 @@ public class StylistsController : ControllerBase
             PayType         = req.PayType,
             FixedSalary     = req.FixedSalary,
             CommissionRate  = req.CommissionRate,
+            ApproverId      = req.ApproverId,
         };
 
         _db.Stylists.Add(stylist);
@@ -124,6 +124,7 @@ public class StylistsController : ControllerBase
         s.PayType         = req.PayType;
         s.FixedSalary     = req.FixedSalary;
         s.CommissionRate  = req.CommissionRate;
+        s.ApproverId      = req.ApproverId;
 
         await _db.SaveChangesAsync();
         return Ok(Map(s));
@@ -173,13 +174,15 @@ public class StylistsController : ControllerBase
         return Ok(new { photoUrl = s.PhotoUrl });
     }
 
-    private static StylistResponse Map(Stylist s) => new()
+    private static StylistResponse MapWithApprover(Stylist s, Dictionary<Guid, string> approvers) => new()
     {
         Id = s.Id, FullName = s.FullName, Specialty = s.Specialty,
         Phone = s.Phone, Email = s.Email, PhotoUrl = s.PhotoUrl,
         Biography = s.Biography, Specializations = s.Specializations,
         ExperienceYears = s.ExperienceYears, IsActive = s.IsActive,
         PayType = s.PayType, FixedSalary = s.FixedSalary, CommissionRate = s.CommissionRate,
-        CreatedAtUtc = s.CreatedAtUtc
+        CreatedAtUtc = s.CreatedAtUtc,
+        ApproverId   = s.ApproverId,
+        ApproverName = s.ApproverId.HasValue && approvers.TryGetValue(s.ApproverId.Value, out var n) ? n : null,
     };
 }
