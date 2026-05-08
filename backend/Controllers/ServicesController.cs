@@ -25,27 +25,24 @@ public class ServicesController : ControllerBase
         return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
     }
 
+    // ── Services ──────────────────────────────────────────────────────
+
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] string? category = null, [FromQuery] bool activeOnly = true)
+    public async Task<IActionResult> GetAll([FromQuery] string? categoryId = null, [FromQuery] bool activeOnly = true)
     {
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
-        var q = _db.Services.Where(x => x.SalonId == salonId.Value);
+        var q = _db.Services.Where(x => x.SalonId == salonId.Value)
+            .Include(x => x.ServiceCategory);
         if (activeOnly) q = q.Where(x => x.IsActive);
-        if (!string.IsNullOrWhiteSpace(category)) q = q.Where(x => x.Category == category);
+        if (!string.IsNullOrWhiteSpace(categoryId) && Guid.TryParse(categoryId, out var catGuid))
+            q = q.Where(x => x.CategoryId == catGuid);
 
-        var items = await q
-            .OrderBy(x => x.Category).ThenBy(x => x.Name)
-            .Select(x => new ServiceResponse
-            {
-                Id = x.Id, Name = x.Name, Category = x.Category,
-                DurationMinutes = x.DurationMinutes, Price = x.Price,
-                IsActive = x.IsActive, CreatedAtUtc = x.CreatedAtUtc
-            })
-            .ToListAsync();
+        var items = await q.OrderBy(x => x.ServiceCategory != null ? x.ServiceCategory.Name : x.Category)
+            .ThenBy(x => x.Name).ToListAsync();
 
-        return Ok(items);
+        return Ok(items.Select(Map));
     }
 
     [HttpGet("{id:guid}")]
@@ -54,7 +51,8 @@ public class ServicesController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
-        var s = await _db.Services.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
+        var s = await _db.Services.Include(x => x.ServiceCategory)
+            .FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (s is null) return NotFound();
         return Ok(Map(s));
     }
@@ -73,14 +71,17 @@ public class ServicesController : ControllerBase
         {
             SalonId         = salonId.Value,
             Name            = req.Name.Trim(),
-            Category        = req.Category?.Trim() ?? "Diğer",
+            Description     = req.Description?.Trim(),
+            Category        = req.Category?.Trim() ?? "",
+            CategoryId      = req.CategoryId,
             DurationMinutes = req.DurationMinutes,
             Price           = req.Price,
-            IsActive        = true
+            IsActive        = true,
         };
 
         _db.Services.Add(service);
         await _db.SaveChangesAsync();
+        await _db.Entry(service).Reference(x => x.ServiceCategory).LoadAsync();
         return Ok(service.Id);
     }
 
@@ -91,17 +92,38 @@ public class ServicesController : ControllerBase
         var salonId = await GetSalonIdAsync();
         if (salonId is null) return Unauthorized();
 
-        var s = await _db.Services.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
+        var s = await _db.Services.Include(x => x.ServiceCategory)
+            .FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (s is null) return NotFound();
 
         s.Name            = req.Name.Trim();
-        s.Category        = req.Category?.Trim() ?? "Diğer";
+        s.Description     = req.Description?.Trim();
+        s.Category        = req.Category?.Trim() ?? "";
+        s.CategoryId      = req.CategoryId;
         s.DurationMinutes = req.DurationMinutes;
         s.Price           = req.Price;
         s.IsActive        = req.IsActive;
+        s.UpdatedAtUtc    = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+        await _db.Entry(s).Reference(x => x.ServiceCategory).LoadAsync();
         return Ok(Map(s));
+    }
+
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
+    [HttpPatch("{id:guid}")]
+    public async Task<IActionResult> Patch(Guid id, [FromBody] PatchServiceRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var s = await _db.Services.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
+        if (s is null) return NotFound();
+
+        if (req.IsActive.HasValue) s.IsActive = req.IsActive.Value;
+        s.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok();
     }
 
     [Authorize(Roles = "SuperAdmin,SalonYonetici")]
@@ -119,10 +141,105 @@ public class ServicesController : ControllerBase
         return NoContent();
     }
 
+    // ── Categories ────────────────────────────────────────────────────
+
+    [HttpGet("categories")]
+    public async Task<IActionResult> GetCategories()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var cats = await _db.ServiceCategories.Where(c => c.SalonId == salonId.Value)
+            .OrderBy(c => c.Name).ToListAsync();
+
+        var counts = await _db.Services.Where(x => x.SalonId == salonId.Value && x.CategoryId != null)
+            .GroupBy(x => x.CategoryId!.Value)
+            .Select(g => new { Id = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Id, g => g.Count);
+
+        return Ok(cats.Select(c => new ServiceCategoryResponse
+        {
+            Id           = c.Id,
+            Name         = c.Name,
+            Description  = c.Description,
+            ServiceCount = counts.GetValueOrDefault(c.Id, 0),
+        }));
+    }
+
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
+    [HttpPost("categories")]
+    public async Task<IActionResult> CreateCategory([FromBody] ServiceCategoryRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { message = "Kategori adı zorunlu." });
+
+        var cat = new ServiceCategory
+        {
+            SalonId     = salonId.Value,
+            Name        = req.Name.Trim(),
+            Description = req.Description?.Trim(),
+        };
+        _db.ServiceCategories.Add(cat);
+        await _db.SaveChangesAsync();
+        return Ok(new { id = cat.Id });
+    }
+
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
+    [HttpPut("categories/{id:guid}")]
+    public async Task<IActionResult> UpdateCategory(Guid id, [FromBody] ServiceCategoryRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var cat = await _db.ServiceCategories.FirstOrDefaultAsync(c => c.Id == id && c.SalonId == salonId.Value);
+        if (cat is null) return NotFound();
+
+        if (string.IsNullOrWhiteSpace(req.Name))
+            return BadRequest(new { message = "Kategori adı zorunlu." });
+
+        cat.Name        = req.Name.Trim();
+        cat.Description = req.Description?.Trim();
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
+    [HttpDelete("categories/{id:guid}")]
+    public async Task<IActionResult> DeleteCategory(Guid id)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var cat = await _db.ServiceCategories.FirstOrDefaultAsync(c => c.Id == id && c.SalonId == salonId.Value);
+        if (cat is null) return NotFound();
+
+        _db.ServiceCategories.Remove(cat);
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+
     private static ServiceResponse Map(Service s) => new()
     {
-        Id = s.Id, Name = s.Name, Category = s.Category,
-        DurationMinutes = s.DurationMinutes, Price = s.Price,
-        IsActive = s.IsActive, CreatedAtUtc = s.CreatedAtUtc
+        Id              = s.Id,
+        Name            = s.Name,
+        Description     = s.Description,
+        Category        = s.ServiceCategory?.Name ?? s.Category,
+        CategoryId      = s.CategoryId,
+        CategoryName    = s.ServiceCategory?.Name,
+        DurationMinutes = s.DurationMinutes,
+        Price           = s.Price,
+        IsActive        = s.IsActive,
+        CreatedAtUtc    = s.CreatedAtUtc,
+        UpdatedAtUtc    = s.UpdatedAtUtc,
     };
+}
+
+public class PatchServiceRequest
+{
+    public bool? IsActive { get; set; }
 }

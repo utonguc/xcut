@@ -7,9 +7,11 @@ public class Service
     public Guid SalonId { get; set; }
     public Salon? Salon { get; set; }
 
-    public string Name { get; set; } = string.Empty;
-    /// <summary>Saç | Tırnak | Cilt | Makyaj | Sakal</summary>
-    public string Category { get; set; } = string.Empty;
+    public string  Name              { get; set; } = string.Empty;
+    public string? Description       { get; set; }
+    public string  Category          { get; set; } = string.Empty;
+    public Guid?   CategoryId        { get; set; }
+    public ServiceCategory? ServiceCategory { get; set; }
     public int DurationMinutes { get; set; } = 30;
     public decimal Price { get; set; }
     public bool IsActive { get; set; } = true;

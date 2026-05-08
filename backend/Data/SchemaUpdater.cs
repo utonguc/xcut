@@ -559,5 +559,16 @@ public static class SchemaUpdater
         );
         CREATE INDEX IF NOT EXISTS ix_notif_user_unread ON "Notifications"("UserId", "IsRead");
 
+        -- ServiceCategories table
+        CREATE TABLE IF NOT EXISTS "ServiceCategories" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid         NOT NULL,
+            "Name"         text         NOT NULL DEFAULT '',
+            "Description"  text,
+            "CreatedAtUtc" timestamptz  NOT NULL DEFAULT now()
+        );
+        ALTER TABLE "Services" ADD COLUMN IF NOT EXISTS "CategoryId"   uuid REFERENCES "ServiceCategories"("Id") ON DELETE SET NULL;
+        ALTER TABLE "Services" ADD COLUMN IF NOT EXISTS "Description"  text;
+
         """;
 }

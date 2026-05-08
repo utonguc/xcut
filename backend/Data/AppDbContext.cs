@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Stylist>          Stylists          => Set<Stylist>();
     public DbSet<Appointment>      Appointments      => Set<Appointment>();
     public DbSet<Service>          Services          => Set<Service>();
+    public DbSet<ServiceCategory>  ServiceCategories => Set<ServiceCategory>();
     public DbSet<OrganizationSetting> OrganizationSettings => Set<OrganizationSetting>();
     public DbSet<DashboardWidget>  DashboardWidgets  => Set<DashboardWidget>();
     public DbSet<ScheduledReport>  ScheduledReports  => Set<ScheduledReport>();

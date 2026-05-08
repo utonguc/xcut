@@ -141,7 +141,9 @@ public class StylistResponse
 public class CreateServiceRequest
 {
     public string  Name            { get; set; } = string.Empty;
-    public string  Category        { get; set; } = string.Empty;
+    public string? Category        { get; set; }
+    public Guid?   CategoryId      { get; set; }
+    public string? Description     { get; set; }
     public int     DurationMinutes { get; set; } = 30;
     public decimal Price           { get; set; }
     public bool    IsActive        { get; set; } = true;
@@ -153,12 +155,29 @@ public class ServiceResponse
 {
     public Guid    Id              { get; set; }
     public string  Name            { get; set; } = string.Empty;
+    public string? Description     { get; set; }
     public string  Category        { get; set; } = string.Empty;
+    public Guid?   CategoryId      { get; set; }
+    public string? CategoryName    { get; set; }
     public int     DurationMinutes { get; set; }
     public decimal Price           { get; set; }
     public bool    IsActive        { get; set; }
     public DateTime CreatedAtUtc   { get; set; }
     public DateTime UpdatedAtUtc   { get; set; }
+}
+
+public class ServiceCategoryRequest
+{
+    public string  Name        { get; set; } = string.Empty;
+    public string? Description { get; set; }
+}
+
+public class ServiceCategoryResponse
+{
+    public Guid    Id           { get; set; }
+    public string  Name         { get; set; } = string.Empty;
+    public string? Description  { get; set; }
+    public int     ServiceCount { get; set; }
 }
 
 // ── Appointment ───────────────────────────────────────────────────────────────
