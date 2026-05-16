@@ -418,11 +418,14 @@ public class CreateSalonRequest
 
 public class UpdateSalonRequest
 {
-    public string  Name        { get; set; } = string.Empty;
-    public string? City        { get; set; }
-    public string? Country     { get; set; }
-    public bool    IsActive    { get; set; } = true;
-    public string? EmailDomain { get; set; }
+    public string    Name           { get; set; } = string.Empty;
+    public string?   City           { get; set; }
+    public string?   Country        { get; set; }
+    public bool      IsActive       { get; set; } = true;
+    public string?   EmailDomain    { get; set; }
+    public string?   Plan           { get; set; }
+    public DateTime? TrialEndsAtUtc { get; set; }
+    public string?   SaNote         { get; set; }
 }
 
 public class SalonListItemResponse

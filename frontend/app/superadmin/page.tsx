@@ -11,7 +11,7 @@ import { useToast } from "@/components/Toast";
 
 type Salon = {
   id: string; name: string; city?: string; country?: string;
-  emailDomain?: string; plan?: string;
+  emailDomain?: string; plan?: string; trialEndsAtUtc?: string; saNote?: string;
   isActive: boolean; userCount: number; customerCount: number;
   activeModules: string[]; createdAtUtc: string;
 };
@@ -25,19 +25,20 @@ type SalonUser = {
 };
 
 const ALL_MODULES = [
-  { code: "crm",           label: "CRM & Müşteri Yönetimi" },
-  { code: "appointments",  label: "Randevu Yönetimi" },
-  { code: "stylists",      label: "Stilist Yönetimi" },
-  { code: "services",      label: "Hizmet Kataloğu" },
-  { code: "reports",       label: "Raporlama" },
-  { code: "finance",       label: "Finans & Faturalama" },
-  { code: "inventory",     label: "Stok Yönetimi" },
-  { code: "assets",        label: "Demirbaş Takibi" },
-  { code: "tasks",         label: "Görev Yönetimi" },
-  { code: "notifications", label: "Bildirim & SMS/Email" },
-  { code: "surveys",       label: "Anket & Memnuniyet" },
-  { code: "whatsapp",      label: "WhatsApp Entegrasyonu" },
-  { code: "website",       label: "Web Sitesi" },
+  { code: "appointments", label: "Randevu Yönetimi" },
+  { code: "customers",    label: "Müşteri Yönetimi" },
+  { code: "staff",        label: "Personel & Stilistler" },
+  { code: "services",     label: "Hizmet Kataloğu" },
+  { code: "stock",        label: "Stok Yönetimi" },
+  { code: "tasks",        label: "Görev Yönetimi" },
+  { code: "kasa",         label: "Kasa & POS" },
+  { code: "finance",      label: "Finans & Faturalama" },
+  { code: "reports",      label: "Raporlama" },
+  { code: "whatsapp",     label: "WhatsApp Entegrasyonu" },
+  { code: "audit",        label: "Denetim Logu" },
+  { code: "website",      label: "Web Sitesi" },
+  { code: "crm",          label: "CRM & Toplu İletişim" },
+  { code: "settings",     label: "Ayarlar" },
 ];
 
 const card: React.CSSProperties = {
@@ -56,7 +57,7 @@ function expiryStatus(expiresAtUtc?: string) {
 const emptyForm = () => ({
   name: "", city: "", country: "Türkiye", emailDomain: "",
   adminFullName: "", adminUserName: "", adminEmail: "", adminPassword: "",
-  initialModules: ["crm","appointments","stylists","services","reports"] as string[],
+  initialModules: ["appointments","customers","staff","services","stock","tasks","kasa","finance","reports","crm"] as string[],
 });
 
 export default function SuperAdminPage() {
@@ -285,11 +286,23 @@ function SuperAdminPageInner() {
                   </span>
                 </div>
 
-                <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 11, color: "#94a3b8" }}>
+                <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 11, color: "#94a3b8", flexWrap: "wrap" }}>
                   <span>👤 {s.userCount}</span>
                   <span>💇 {s.customerCount}</span>
                   <span>📦 {s.activeModules.length} modül</span>
-                  <span>🗓 {fmtDate(s.createdAtUtc)}</span>
+                  {s.plan && (
+                    <span style={{ background: "#ede9fe", color: "#7c3aed", borderRadius: 999, padding: "1px 7px", fontWeight: 700 }}>
+                      {s.plan}
+                    </span>
+                  )}
+                  {s.trialEndsAtUtc && (() => {
+                    const d = Math.ceil((new Date(s.trialEndsAtUtc).getTime() - Date.now()) / 86400000);
+                    return (
+                      <span style={{ background: d < 0 ? "#fef3f2" : d <= 7 ? "#fffbeb" : "#f0fdf4", color: d < 0 ? "#b42318" : d <= 7 ? "#d97706" : "#059669", borderRadius: 999, padding: "1px 7px", fontWeight: 600 }}>
+                        {d < 0 ? "Süresi doldu" : `${d}g`}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             ))}
@@ -895,6 +908,13 @@ function SalonDetail({ salon, allSalons, onClose, onUpdated, onMessage, tab, set
   );
 }
 
+const PLANS = [
+  { value: "trial",   label: "Trial (Deneme)" },
+  { value: "starter", label: "Starter" },
+  { value: "salon",   label: "Salon" },
+  { value: "pro",     label: "Pro" },
+];
+
 function GeneralTab({ salon, onUpdated, onMessage }: {
   salon: Salon;
   onUpdated: () => Promise<void>;
@@ -905,23 +925,38 @@ function GeneralTab({ salon, onUpdated, onMessage }: {
   const [country,     setCountry]     = useState(salon.country ?? "");
   const [emailDomain, setEmailDomain] = useState(salon.emailDomain ?? "");
   const [isActive,    setIsActive]    = useState(salon.isActive);
+  const [plan,        setPlan]        = useState(salon.plan ?? "trial");
+  const [trialEnds,   setTrialEnds]   = useState(
+    salon.trialEndsAtUtc ? salon.trialEndsAtUtc.slice(0, 10) : ""
+  );
+  const [saNote,      setSaNote]      = useState(salon.saNote ?? "");
   const [saving,      setSaving]      = useState(false);
 
   const save = async () => {
     setSaving(true);
     const res = await apiFetch(`/superadmin/salons/${salon.id}`, {
       method: "PUT",
-      body: JSON.stringify({ name, city, country, isActive, emailDomain: emailDomain.trim().toLowerCase() || null }),
+      body: JSON.stringify({
+        name, city, country, isActive,
+        emailDomain: emailDomain.trim().toLowerCase() || null,
+        plan,
+        trialEndsAtUtc: trialEnds ? new Date(trialEnds).toISOString() : null,
+        saNote: saNote.trim() || null,
+      }),
     });
     setSaving(false);
     if (res.ok) { onMessage("Salon güncellendi."); await onUpdated(); }
     else        { const d = await res.json().catch(() => ({})); onMessage(d.message ?? "Hata."); }
   };
 
-  const statRow = (label: string, val: string | number) => (
+  const trialDaysLeft = salon.trialEndsAtUtc
+    ? Math.ceil((new Date(salon.trialEndsAtUtc).getTime() - Date.now()) / 86400000)
+    : null;
+
+  const statRow = (label: string, val: string | number, color?: string) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f2f4f7", fontSize: 13 }}>
       <span style={{ color: "#667085" }}>{label}</span>
-      <span style={{ fontWeight: 600, color: "var(--text, #101828)" }}>{val}</span>
+      <span style={{ fontWeight: 600, color: color ?? "var(--text, #101828)" }}>{val}</span>
     </div>
   );
 
@@ -946,6 +981,20 @@ function GeneralTab({ salon, onUpdated, onMessage }: {
           <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>E-posta Domain</label>
           <input value={emailDomain} onChange={e => setEmailDomain(e.target.value.trim().toLowerCase())} placeholder="ör: salon-a.com.tr" style={inp()} />
         </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>Plan</label>
+            <select value={plan} onChange={e => setPlan(e.target.value)} style={inp()}>
+              {PLANS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>Deneme Bitiş Tarihi</label>
+            <input type="date" value={trialEnds} onChange={e => setTrialEnds(e.target.value)} style={inp()} />
+          </div>
+        </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2, #344054)" }}>Salon Durumu</label>
           <button onClick={() => setIsActive(v => !v)} style={{
@@ -955,6 +1004,15 @@ function GeneralTab({ salon, onUpdated, onMessage }: {
             {isActive ? "● Aktif" : "● Pasif"}
           </button>
         </div>
+
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-2, #344054)", display: "block", marginBottom: 6 }}>SA Notu (sadece SuperAdmin görür)</label>
+          <textarea value={saNote} onChange={e => setSaNote(e.target.value)}
+            placeholder="Salon hakkında iç notlar..."
+            rows={3}
+            style={{ ...inp(), resize: "vertical", minHeight: 72 }} />
+        </div>
+
         <button onClick={save} disabled={saving} style={{
           padding: "10px 20px", borderRadius: 10, border: "none",
           background: saving ? "#a78bfa" : "#7c3aed", color: "#fff",
@@ -967,7 +1025,13 @@ function GeneralTab({ salon, onUpdated, onMessage }: {
       <div style={{ background: "var(--surface-2, #f8fafc)", borderRadius: 12, padding: "4px 16px" }}>
         {statRow("Kullanıcı Sayısı", salon.userCount)}
         {statRow("Müşteri Sayısı", salon.customerCount)}
-        {statRow("Aktif Modül", salon.activeModules.length)}
+        {statRow("Aktif Modül", `${salon.activeModules.length} / 14`)}
+        {statRow("Mevcut Plan", salon.plan ?? "—", "#7c3aed")}
+        {trialDaysLeft !== null && statRow(
+          "Deneme Süresi",
+          trialDaysLeft < 0 ? "Süresi dolmuş" : `${trialDaysLeft} gün kaldı`,
+          trialDaysLeft < 0 ? "#b42318" : trialDaysLeft <= 7 ? "#d97706" : "#059669"
+        )}
         {statRow("Oluşturulma", fmtDate(salon.createdAtUtc))}
       </div>
     </div>

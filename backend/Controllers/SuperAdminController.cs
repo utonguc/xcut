@@ -20,26 +20,27 @@ public class SuperAdminController : ControllerBase
 
     private static readonly string[] AllModuleCodes =
     [
-        "crm","appointments","stylists","services","reports",
-        "finance","inventory","assets","tasks",
-        "notifications","surveys","whatsapp","website"
+        "appointments","customers","staff","services","stock",
+        "tasks","kasa","finance","reports","whatsapp",
+        "audit","website","crm","settings"
     ];
 
     private static readonly Dictionary<string, string> ModuleLabels = new()
     {
-        ["crm"]           = "CRM & Müşteri Yönetimi",
-        ["appointments"]  = "Randevu Yönetimi",
-        ["stylists"]      = "Stilist Yönetimi",
-        ["services"]      = "Hizmet Kataloğu",
-        ["reports"]       = "Raporlama",
-        ["finance"]       = "Finans & Faturalama",
-        ["inventory"]     = "Stok Yönetimi",
-        ["assets"]        = "Demirbaş Takibi",
-        ["tasks"]         = "Görev Yönetimi",
-        ["notifications"] = "Bildirim & SMS/Email",
-        ["surveys"]       = "Anket & Memnuniyet",
-        ["whatsapp"]      = "WhatsApp Entegrasyonu",
-        ["website"]       = "Web Sitesi",
+        ["appointments"] = "Randevu Yönetimi",
+        ["customers"]    = "Müşteri Yönetimi",
+        ["staff"]        = "Personel & Stilistler",
+        ["services"]     = "Hizmet Kataloğu",
+        ["stock"]        = "Stok Yönetimi",
+        ["tasks"]        = "Görev Yönetimi",
+        ["kasa"]         = "Kasa & POS",
+        ["finance"]      = "Finans & Faturalama",
+        ["reports"]      = "Raporlama",
+        ["whatsapp"]     = "WhatsApp Entegrasyonu",
+        ["audit"]        = "Denetim Logu",
+        ["website"]      = "Web Sitesi",
+        ["crm"]          = "CRM & Toplu İletişim",
+        ["settings"]     = "Ayarlar",
     };
 
     public SuperAdminController(AppDbContext db, ITokenService tokenService)
@@ -67,18 +68,19 @@ public class SuperAdminController : ControllerBase
 
             result.Add(new
             {
-                id            = s.Id,
-                name          = s.Name,
-                city          = s.City,
-                country       = s.Country,
-                emailDomain   = s.EmailDomain,
-                isActive      = s.IsActive,
-                plan          = s.Plan,
+                id             = s.Id,
+                name           = s.Name,
+                city           = s.City,
+                country        = s.Country,
+                emailDomain    = s.EmailDomain,
+                isActive       = s.IsActive,
+                plan           = s.Plan,
                 trialEndsAtUtc = s.TrialEndsAtUtc,
+                saNote         = s.SaNote,
                 userCount,
                 customerCount,
-                activeModules = modules,
-                createdAtUtc  = s.CreatedAtUtc,
+                activeModules  = modules,
+                createdAtUtc   = s.CreatedAtUtc,
             });
         }
 
@@ -167,11 +169,14 @@ public class SuperAdminController : ControllerBase
             await _db.Salons.AnyAsync(x => x.EmailDomain == emailDomain && x.Id != id))
             return Conflict(new { message = "Bu email domain başka bir salona ait." });
 
-        salon.Name        = req.Name.Trim();
-        salon.City        = req.City?.Trim();
-        salon.Country     = req.Country?.Trim();
-        salon.IsActive    = req.IsActive;
-        salon.EmailDomain = string.IsNullOrEmpty(emailDomain) ? null : emailDomain;
+        salon.Name           = req.Name.Trim();
+        salon.City           = req.City?.Trim();
+        salon.Country        = req.Country?.Trim();
+        salon.IsActive       = req.IsActive;
+        salon.EmailDomain    = string.IsNullOrEmpty(emailDomain) ? null : emailDomain;
+        salon.Plan           = string.IsNullOrWhiteSpace(req.Plan) ? salon.Plan : req.Plan.Trim();
+        salon.TrialEndsAtUtc = req.TrialEndsAtUtc;
+        salon.SaNote         = req.SaNote?.Trim();
 
         await _db.SaveChangesAsync();
         return Ok(new { message = "Salon güncellendi." });

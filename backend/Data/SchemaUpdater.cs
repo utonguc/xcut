@@ -841,5 +841,12 @@ public static class SchemaUpdater
         );
         CREATE INDEX IF NOT EXISTS ix_packageitems_package ON "PackageItems"("PackageId");
 
+        -- SuperAdmin internal note on Salons
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='Salons' AND column_name='SaNote') THEN
+                ALTER TABLE "Salons" ADD COLUMN "SaNote" text;
+            END IF;
+        END $$;
+
         """;
 }
