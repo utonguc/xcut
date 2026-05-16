@@ -25,6 +25,7 @@ const APP_PATHS = new Set([
   "/kiosk",
   "/sira",
   "/bekleme",
+  "/paketler",
   "/demo",
   "/superadmin",
   "/site",

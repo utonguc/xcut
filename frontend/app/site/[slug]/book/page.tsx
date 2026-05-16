@@ -237,6 +237,7 @@ function BookPageInner() {
           customerEmail:     waitlistForm.email.trim() || undefined,
           stylistId:         selectedStylist?.id,
           serviceName,
+          waitingType:       isSpecific ? "fixed_slot" : "flexible",
           preferredDate:     selectedDate ? new Date(selectedDate).toISOString() : undefined,
           preferredTimeFrom: isSpecific ? waitlistForm.timeFrom : undefined,
           preferredTimeTo:   isSpecific ? waitlistForm.timeTo   : undefined,

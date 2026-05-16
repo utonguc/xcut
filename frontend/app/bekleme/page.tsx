@@ -1,535 +1,360 @@
 "use client";
-
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { apiFetch } from "@/lib/api";
 
-type WaitlistEntry = {
-  id: string; customerId?: string;
-  customerName: string; customerFirstName?: string; customerLastName?: string;
-  customerPhone?: string; customerEmail?: string;
-  stylistId?: string; stylistName?: string; serviceName?: string;
-  preferredDate?: string; preferredTimeFrom?: string; preferredTimeTo?: string;
-  notes?: string; status: string; createdAtUtc: string; source?: string;
-};
-type Customer = { id: string; firstName: string; lastName: string; phone?: string };
-type Stylist  = { id: string; fullName: string };
-type Service  = { id: string; name: string };
+type WaitingType = "flexible" | "fixed_slot";
+type Status = "Waiting" | "Notified" | "OfferSent" | "Booked" | "Declined" | "Cancelled" | "Expired";
 
-const STATUS_LABEL: Record<string, string> = { Waiting: "Bekliyor", Notified: "Bildirildi", Booked: "Onaylandı", Cancelled: "İptal" };
-const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
-  Waiting:   { bg: "#ede9fe", text: "#7c3aed" },
-  Notified:  { bg: "#fef3c7", text: "#92400e" },
-  Booked:    { bg: "#dcfce7", text: "#166534" },
-  Cancelled: { bg: "#f1f5f9", text: "#64748b" },
-};
-
-// ── Onayla Modal ──────────────────────────────────────────────────────────────
-function ApproveModal({ entry, onClose, onDone }: {
-  entry: WaitlistEntry;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { toast } = useToast();
-  const [proposedDate, setProposedDate] = useState("");
-  const [proposedTime, setProposedTime] = useState("");
-  const [channels, setChannels] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  const hasPhone = !!entry.customerPhone;
-  const hasEmail = !!entry.customerEmail;
-
-  const toggleChannel = (ch: string) =>
-    setChannels(prev => prev.includes(ch) ? prev.filter(c => c !== ch) : [...prev, ch]);
-
-  const approve = async () => {
-    setBusy(true);
-    const r = await apiFetch(`/Waitlist/${entry.id}/approve`, {
-      method: "POST",
-      body: JSON.stringify({
-        proposedDate: proposedDate
-          ? new Date(proposedDate).toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long", year: "numeric" })
-          : undefined,
-        proposedTime: proposedTime || undefined,
-        channels,
-      }),
-    });
-    setBusy(false);
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) {
-      const warnings: string[] = d.warnings ?? [];
-      if (warnings.length > 0) toast.warning(`Onaylandı, ancak: ${warnings.join("; ")}`);
-      else toast.success("Onaylandı ve bildirim gönderildi.");
-      onDone();
-    } else {
-      toast.error(d.message ?? "Bir hata oluştu.");
-    }
-  };
-
-  return (
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 700 }} />
-      <div style={{
-        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-        width: "min(540px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto",
-        background: "#fff", borderRadius: 18, boxShadow: "0 16px 64px rgba(15,23,42,0.2)",
-        zIndex: 701, padding: 28,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-          <div style={{ fontWeight: 800, fontSize: 17 }}>Bekleme Talebini Onayla</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "#94a3b8", lineHeight: 1 }}>×</button>
-        </div>
-
-        {/* Customer info */}
-        <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 6 }}>{entry.customerName}</div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "#64748b" }}>
-            {entry.customerPhone && <span>📞 {entry.customerPhone}</span>}
-            {entry.customerEmail && <span>✉️ {entry.customerEmail}</span>}
-            {entry.serviceName   && <span>✂️ {entry.serviceName}</span>}
-            {entry.stylistName   && <span>👤 {entry.stylistName}</span>}
-            {entry.preferredDate && (
-              <span>
-                📅 {new Date(entry.preferredDate).toLocaleDateString("tr-TR")}
-                {entry.preferredTimeFrom && entry.preferredTimeTo
-                  ? ` · ⏰ ${entry.preferredTimeFrom}–${entry.preferredTimeTo}`
-                  : entry.preferredTimeFrom
-                  ? ` · ⏰ ${entry.preferredTimeFrom} sonrası`
-                  : " · Tüm gün"}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Propose a time */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#0f172a" }}>Önerilen Randevu Saati</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={lbl}>Tarih</label>
-              <input type="date" value={proposedDate} onChange={e => setProposedDate(e.target.value)} style={inp} />
-            </div>
-            <div>
-              <label style={lbl}>Saat</label>
-              <input type="time" value={proposedTime} onChange={e => setProposedTime(e.target.value)} style={inp} />
-            </div>
-          </div>
-          {!proposedDate && !proposedTime && (
-            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>Tarih/saat belirtmezseniz bildirim yine de gönderilir, sadece öneri içermez.</p>
-          )}
-        </div>
-
-        {/* Notification channels */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "#0f172a" }}>Bildirim Kanalları</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {[
-              { key: "whatsapp", label: "💬 WhatsApp", available: hasPhone, reason: "Telefon numarası yok" },
-              { key: "email",    label: "✉️ E-posta",  available: hasEmail, reason: "E-posta adresi yok" },
-              { key: "sms",      label: "📱 SMS",       available: hasPhone, reason: "Telefon numarası yok" },
-            ].map(ch => (
-              <label key={ch.key} style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10,
-                border: `1.5px solid ${channels.includes(ch.key) ? "#7c3aed" : "#e2e8f0"}`,
-                background: channels.includes(ch.key) ? "#faf5ff" : "#fff",
-                cursor: ch.available ? "pointer" : "not-allowed",
-                opacity: ch.available ? 1 : 0.45,
-              }}>
-                <input
-                  type="checkbox"
-                  checked={channels.includes(ch.key)}
-                  onChange={() => ch.available && toggleChannel(ch.key)}
-                  disabled={!ch.available}
-                  style={{ accentColor: "#7c3aed", width: 16, height: 16 }}
-                />
-                <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{ch.label}</span>
-                {!ch.available && <span style={{ fontSize: 11, color: "#94a3b8" }}>{ch.reason}</span>}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-            İptal
-          </button>
-          <button onClick={approve} disabled={busy}
-            style={{ flex: 2, padding: "11px 0", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: busy ? 0.7 : 1 }}>
-            {busy ? "İşleniyor..." : channels.length > 0 ? "Onayla ve Bildir" : "Sadece Onayla"}
-          </button>
-        </div>
-      </div>
-    </>
-  );
+interface WaitlistEntry {
+  id: string;
+  waitingType: WaitingType;
+  status: Status;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerId?: string;
+  stylistId?: string;
+  stylistName?: string;
+  serviceName?: string;
+  preferredDate?: string;
+  preferredTimeFrom?: string;
+  preferredTimeTo?: string;
+  offeredStartAt?: string;
+  offeredEndAt?: string;
+  offerExpiresAt?: string;
+  declineNote?: string;
+  notes?: string;
+  source: string;
+  createdAtUtc: string;
 }
 
-// ── Notify Modal (bildirim gönder, onaylamadan) ───────────────────────────────
-function NotifyModal({ entry, onClose, onDone }: {
-  entry: WaitlistEntry;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { toast } = useToast();
-  const [channel, setChannel]       = useState("whatsapp");
-  const [proposedDate, setProposedDate] = useState("");
-  const [proposedTime, setProposedTime] = useState("");
-  const [busy, setBusy] = useState(false);
+interface Stylist { id: string; fullName: string; }
 
-  const hasPhone = !!entry.customerPhone;
-  const hasEmail = !!entry.customerEmail;
+const STATUS_LABEL: Record<Status, string> = {
+  Waiting:"Bekliyor", Notified:"Bildirildi", OfferSent:"Teklif Gönderildi",
+  Booked:"Randevu Oluşturuldu", Declined:"Reddedildi", Cancelled:"İptal", Expired:"Süresi Doldu",
+};
+const STATUS_COLOR: Record<Status, string> = {
+  Waiting:"#f59e0b", Notified:"#3b82f6", OfferSent:"#8b5cf6",
+  Booked:"#22c55e", Declined:"#ef4444", Cancelled:"#6b7280", Expired:"#9ca3af",
+};
+
+const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("tr-TR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+const fmtDate = (iso?: string) => iso ? new Date(iso).toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric",weekday:"long"}) : "—";
+
+const inp: React.CSSProperties = { width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:14,boxSizing:"border-box" };
+const mkBtn = (color:string): React.CSSProperties => ({ background:color,color:"#fff",border:"none",borderRadius:6,padding:"7px 14px",cursor:"pointer",fontWeight:600,fontSize:13 });
+
+// ── Offer Modal ───────────────────────────────────────────────────────────────
+
+function OfferModal({ entry, stylists, onClose, onDone }: { entry:WaitlistEntry; stylists:Stylist[]; onClose:()=>void; onDone:()=>void }) {
+  const { toast } = useToast();
+  const [date, setDate] = useState(entry.preferredDate ? entry.preferredDate.slice(0,10) : "");
+  const [time, setTime] = useState("10:00");
+  const [dur,  setDur]  = useState(60);
+  const [stylistId, setStylistId] = useState(entry.stylistId ?? "");
+  const [busy, setBusy] = useState(false);
 
   const send = async () => {
+    if (!date || !time) { toast.warning("Tarih ve saat zorunludur."); return; }
+    if (!entry.customerEmail) { toast.error("Müşterinin e-posta adresi yok."); return; }
     setBusy(true);
-    const r = await apiFetch(`/Waitlist/${entry.id}/notify`, {
-      method: "POST",
-      body: JSON.stringify({
-        channel,
-        proposedDate: proposedDate
-          ? new Date(proposedDate).toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long", year: "numeric" })
-          : undefined,
-        proposedTime: proposedTime || undefined,
-      }),
-    });
-    setBusy(false);
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) { toast.success("Bildirim gönderildi."); onDone(); }
-    else toast.error(d.message ?? "Gönderilemedi.");
+    try {
+      if (stylistId && stylistId !== entry.stylistId)
+        await apiFetch(`/Waitlist/${entry.id}/stylist`,{ method:"PATCH",body:JSON.stringify({ stylistId }) });
+      await apiFetch(`/Waitlist/${entry.id}/offer`,{ method:"POST",body:JSON.stringify({ offeredDate:date, offeredTime:time, durationMinutes:dur }) });
+      toast.success("Teklif e-postası gönderildi."); onDone();
+    } catch(e:unknown){ toast.error(e instanceof Error ? e.message : "Hata."); }
+    finally{ setBusy(false); }
   };
 
-  const channels = [
-    { key: "whatsapp", label: "💬 WhatsApp", available: hasPhone },
-    { key: "email",    label: "✉️ E-posta",  available: hasEmail },
-    { key: "sms",      label: "📱 SMS",       available: hasPhone },
-  ];
-
   return (
-    <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 700 }} />
-      <div style={{
-        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-        width: "min(460px, calc(100vw - 32px))",
-        background: "#fff", borderRadius: 18, boxShadow: "0 16px 64px rgba(15,23,42,0.2)",
-        zIndex: 701, padding: 24,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, fontSize: 16 }}>Bildirim Gönder — {entry.customerName}</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "#94a3b8", lineHeight: 1 }}>×</button>
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 12px" }}>
+      <div style={{ background:"#fff",borderRadius:12,padding:28,width:"100%",maxWidth:420,marginBottom:24 }}>
+        <div style={{ fontWeight:800,fontSize:17,marginBottom:16 }}>⏰ Saat Teklifi Gönder</div>
+        <div style={{ fontSize:14,color:"#374151",marginBottom:16 }}>
+          <strong>{entry.customerName}</strong> — {entry.serviceName||"Genel"}<br/>
+          {entry.customerEmail ? <span style={{ color:"#6b7280" }}>📧 {entry.customerEmail}</span>
+            : <span style={{ color:"#ef4444" }}>⚠️ E-posta yok — teklif gönderilemez</span>}
         </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontWeight: 600, fontSize: 12, color: "#64748b", marginBottom: 8, textTransform: "uppercase" }}>Kanal</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {channels.map(ch => (
-              <button key={ch.key} onClick={() => ch.available && setChannel(ch.key)} disabled={!ch.available}
-                style={{
-                  flex: 1, padding: "9px 0", borderRadius: 10, border: `1.5px solid ${channel === ch.key ? "#7c3aed" : "#e2e8f0"}`,
-                  background: channel === ch.key ? "#faf5ff" : "#fff",
-                  fontWeight: 700, fontSize: 12, cursor: ch.available ? "pointer" : "not-allowed",
-                  opacity: ch.available ? 1 : 0.4, color: channel === ch.key ? "#7c3aed" : "#64748b",
-                }}>
-                {ch.label}
-              </button>
-            ))}
+        {stylists.length > 0 && (
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:13,color:"#6b7280",marginBottom:4 }}>Stilist</div>
+            <select value={stylistId} onChange={e=>setStylistId(e.target.value)} style={inp}>
+              <option value="">Seçiniz</option>
+              {stylists.map(s=><option key={s.id} value={s.id}>{s.fullName}</option>)}
+            </select>
           </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+        )}
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
           <div>
-            <label style={lbl}>Önerilen Tarih</label>
-            <input type="date" value={proposedDate} onChange={e => setProposedDate(e.target.value)} style={inp} />
+            <div style={{ fontSize:13,color:"#6b7280",marginBottom:4 }}>Teklif Tarihi</div>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inp}/>
           </div>
           <div>
-            <label style={lbl}>Önerilen Saat</label>
-            <input type="time" value={proposedTime} onChange={e => setProposedTime(e.target.value)} style={inp} />
+            <div style={{ fontSize:13,color:"#6b7280",marginBottom:4 }}>Saat</div>
+            <input type="time" value={time} onChange={e=>setTime(e.target.value)} style={inp}/>
           </div>
         </div>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>İptal</button>
-          <button onClick={send} disabled={busy}
-            style={{ flex: 2, padding: "10px 0", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", opacity: busy ? 0.7 : 1 }}>
-            {busy ? "Gönderiliyor..." : "Gönder"}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:13,color:"#6b7280",marginBottom:4 }}>Süre (dakika)</div>
+          <select value={dur} onChange={e=>setDur(Number(e.target.value))} style={inp}>
+            {[30,45,60,90,120].map(d=><option key={d} value={d}>{d} dk</option>)}
+          </select>
+        </div>
+        <div style={{ display:"flex",justifyContent:"flex-end",gap:8 }}>
+          <button onClick={onClose} style={mkBtn("#6b7280")}>İptal</button>
+          <button onClick={send} disabled={busy||!entry.customerEmail} style={mkBtn("#6366f1")}>
+            {busy?"Gönderiliyor...":"📧 Teklif Gönder"}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Decline Modal ─────────────────────────────────────────────────────────────
+
+function DeclineModal({ entry, onClose, onDone }: { entry:WaitlistEntry; onClose:()=>void; onDone:()=>void }) {
+  const { toast } = useToast();
+  const [reason, setReason] = useState("Doluluk nedeniyle işleme alınamadı.");
+  const [busy, setBusy] = useState(false);
+
+  const decline = async () => {
+    setBusy(true);
+    try {
+      await apiFetch(`/Waitlist/${entry.id}/decline`,{ method:"POST",body:JSON.stringify({ reason }) });
+      toast.info("Reddedildi. Müşteri kaydı pasif olarak oluşturuldu."); onDone();
+    } catch(e:unknown){ toast.error(e instanceof Error ? e.message : "Hata."); }
+    finally{ setBusy(false); }
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 12px" }}>
+      <div style={{ background:"#fff",borderRadius:12,padding:28,width:"100%",maxWidth:400,marginBottom:24 }}>
+        <div style={{ fontWeight:800,fontSize:17,marginBottom:12 }}>❌ Reddet</div>
+        <div style={{ fontSize:14,marginBottom:16 }}>
+          <strong>{entry.customerName}</strong> talebini reddediyorsunuz.<br/>
+          <span style={{ color:"#6b7280",fontSize:13 }}>Müşteri pasif olarak kaydedilecek.</span>
+        </div>
+        <div style={{ marginBottom:16 }}>
+          <div style={{ fontSize:13,color:"#6b7280",marginBottom:4 }}>Red Notu</div>
+          <input value={reason} onChange={e=>setReason(e.target.value)} style={inp}/>
+        </div>
+        <div style={{ display:"flex",justifyContent:"flex-end",gap:8 }}>
+          <button onClick={onClose} style={mkBtn("#6b7280")}>İptal</button>
+          <button onClick={decline} disabled={busy} style={mkBtn("#ef4444")}>{busy?"İşleniyor...":"Reddet"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Assign Stylist Modal ──────────────────────────────────────────────────────
+
+function AssignStylistModal({ entry, stylists, onClose, onDone }: { entry:WaitlistEntry; stylists:Stylist[]; onClose:()=>void; onDone:()=>void }) {
+  const { toast } = useToast();
+  const [stylistId, setStylistId] = useState(entry.stylistId ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!stylistId){ toast.warning("Stilist seçiniz."); return; }
+    setBusy(true);
+    try {
+      await apiFetch(`/Waitlist/${entry.id}/stylist`,{ method:"PATCH",body:JSON.stringify({ stylistId }) });
+      toast.success("Stilist atandı."); onDone();
+    } catch(e:unknown){ toast.error(e instanceof Error ? e.message : "Hata."); }
+    finally{ setBusy(false); }
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"24px 12px" }}>
+      <div style={{ background:"#fff",borderRadius:12,padding:28,width:"100%",maxWidth:360,marginBottom:24 }}>
+        <div style={{ fontWeight:800,fontSize:17,marginBottom:16 }}>Stilist Ata — {entry.customerName}</div>
+        <select value={stylistId} onChange={e=>setStylistId(e.target.value)} style={{ ...inp,marginBottom:20 }}>
+          <option value="">Stilist seçiniz</option>
+          {stylists.map(s=><option key={s.id} value={s.id}>{s.fullName}</option>)}
+        </select>
+        <div style={{ display:"flex",justifyContent:"flex-end",gap:8 }}>
+          <button onClick={onClose} style={mkBtn("#6b7280")}>İptal</button>
+          <button onClick={save} disabled={busy||!stylistId} style={mkBtn("#6366f1")}>Kaydet</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Entry Card ────────────────────────────────────────────────────────────────
+
+function EntryCard({ entry, stylists, onRefresh }: { entry:WaitlistEntry; stylists:Stylist[]; onRefresh:()=>void }) {
+  const { toast } = useToast();
+  const [showOffer,   setShowOffer]   = useState(false);
+  const [showDecline, setShowDecline] = useState(false);
+  const [showAssign,  setShowAssign]  = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const approve = async () => {
+    if (!entry.stylistId){ setShowAssign(true); return; }
+    setBusy(true);
+    try {
+      await apiFetch(`/Waitlist/${entry.id}/approve`,{ method:"POST" });
+      toast.success("Onaylandı, randevu takvime eklendi."); onRefresh();
+    } catch(e:unknown){ toast.error(e instanceof Error ? e.message : "Hata."); }
+    finally{ setBusy(false); }
+  };
+
+  const isActive   = ["Waiting","Notified","OfferSent"].includes(entry.status);
+  const canApprove = entry.waitingType === "fixed_slot" && ["Waiting","Notified"].includes(entry.status);
+  const canOffer   = entry.waitingType === "flexible"   && ["Waiting","Notified"].includes(entry.status);
+
+  return (
+    <>
+      <div style={{ background:"#fff",border:"1px solid #e5e7eb",borderRadius:10,padding:16,marginBottom:10 }}>
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8 }}>
+          <div>
+            <div style={{ fontWeight:700,fontSize:15 }}>{entry.customerName}</div>
+            <div style={{ fontSize:13,color:"#6b7280",marginTop:2 }}>
+              {entry.customerPhone && <span>📞 {entry.customerPhone}&nbsp;&nbsp;</span>}
+              {entry.customerEmail && <span>📧 {entry.customerEmail}</span>}
+            </div>
+            {entry.serviceName && <div style={{ fontSize:13,color:"#4b5563",marginTop:4 }}>✂️ {entry.serviceName}</div>}
+          </div>
+          <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+            <span style={{ background:STATUS_COLOR[entry.status],color:"#fff",borderRadius:20,padding:"3px 10px",fontSize:12,fontWeight:600 }}>
+              {STATUS_LABEL[entry.status]}
+            </span>
+            {entry.source === "public" && (
+              <span style={{ background:"#ede9fe",color:"#7c3aed",borderRadius:20,padding:"3px 8px",fontSize:11 }}>Online</span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop:10,fontSize:13,color:"#374151" }}>
+          {entry.waitingType === "fixed_slot"
+            ? <span>📅 <strong>{fmtDate(entry.preferredDate)}</strong>{entry.preferredTimeFrom && <span>&nbsp; ⏰ {entry.preferredTimeFrom}{entry.preferredTimeTo ? ` – ${entry.preferredTimeTo}` : ""}</span>}</span>
+            : <span>📅 <strong>{fmtDate(entry.preferredDate)}</strong> <span style={{ color:"#9ca3af" }}>(Herhangi bir saat)</span></span>
+          }
+        </div>
+
+        {entry.offeredStartAt && (
+          <div style={{ marginTop:6,fontSize:13,color:"#8b5cf6" }}>
+            🕐 Teklif: {fmt(entry.offeredStartAt)}{entry.offeredEndAt ? ` – ${new Date(entry.offeredEndAt).toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"})}` : ""}
+            {entry.offerExpiresAt && <span style={{ color:"#9ca3af",fontSize:12 }}>&nbsp; Son: {fmt(entry.offerExpiresAt)}</span>}
+          </div>
+        )}
+
+        <div style={{ marginTop:8,fontSize:13 }}>
+          {entry.stylistId
+            ? <span style={{ color:"#374151" }}>💇 {entry.stylistName}</span>
+            : <span style={{ color:"#f59e0b" }}>⚠️ Stilist atanmamış
+                {isActive && <button onClick={()=>setShowAssign(true)} style={{ marginLeft:8,fontSize:12,color:"#6366f1",background:"none",border:"none",cursor:"pointer",textDecoration:"underline" }}>Ata</button>}
+              </span>
+          }
+        </div>
+
+        {entry.declineNote && (
+          <div style={{ marginTop:8,fontSize:13,color:"#6b7280",background:"#f9fafb",borderRadius:6,padding:"6px 10px" }}>📝 {entry.declineNote}</div>
+        )}
+
+        {isActive && (
+          <div style={{ marginTop:12,display:"flex",gap:8,flexWrap:"wrap" }}>
+            {canApprove && <button onClick={approve} disabled={busy} style={mkBtn("#22c55e")}>{busy?"İşleniyor...":"✅ Onayla"}</button>}
+            {canOffer   && <button onClick={()=>setShowOffer(true)} style={mkBtn("#6366f1")}>📧 Saat Teklifi Gönder</button>}
+            <button onClick={()=>setShowDecline(true)} style={mkBtn("#ef4444")}>❌ Reddet</button>
+          </div>
+        )}
+      </div>
+
+      {showOffer   && <OfferModal   entry={entry} stylists={stylists} onClose={()=>setShowOffer(false)}   onDone={()=>{ setShowOffer(false);   onRefresh(); }}/>}
+      {showDecline && <DeclineModal entry={entry}                     onClose={()=>setShowDecline(false)} onDone={()=>{ setShowDecline(false); onRefresh(); }}/>}
+      {showAssign  && <AssignStylistModal entry={entry} stylists={stylists} onClose={()=>setShowAssign(false)} onDone={()=>{ setShowAssign(false); onRefresh(); }}/>}
     </>
   );
 }
 
-// ── Ana Sayfa ─────────────────────────────────────────────────────────────────
+function EmptyState({ icon, text }: { icon:string; text:string }) {
+  return <div style={{ textAlign:"center",padding:"48px 20px",color:"#9ca3af" }}><div style={{ fontSize:40,marginBottom:8 }}>{icon}</div><div style={{ fontSize:15 }}>{text}</div></div>;
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function BeklemePage() {
-  const { toast, confirm } = useToast();
-  const [entries,   setEntries]   = useState<WaitlistEntry[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [stylists,  setStylists]  = useState<Stylist[]>([]);
-  const [services,  setServices]  = useState<Service[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [showForm,  setShowForm]  = useState(false);
-  const [filter,    setFilter]    = useState("Waiting");
+  const [entries,  setEntries]  = useState<WaitlistEntry[]>([]);
+  const [stylists, setStylists] = useState<Stylist[]>([]);
+  const [tab, setTab] = useState<"flexible"|"fixed_slot"|"done">("flexible");
+  const [loading, setLoading] = useState(true);
 
-  const [approveEntry, setApproveEntry] = useState<WaitlistEntry | null>(null);
-  const [notifyEntry,  setNotifyEntry]  = useState<WaitlistEntry | null>(null);
-
-  // Form state (panel — linked customer)
-  const [fCustomer,  setFCustomer]  = useState("");
-  const [fStylist,   setFStylist]   = useState("");
-  const [fService,   setFService]   = useState("");
-  const [fDate,      setFDate]      = useState("");
-  const [fTimeType,  setFTimeType]  = useState<"flexible"|"specific">("flexible");
-  const [fTimeFrom,  setFTimeFrom]  = useState("09:00");
-  const [fTimeTo,    setFTimeTo]    = useState("11:00");
-  const [fNotes,     setFNotes]     = useState("");
-  const [saving,     setSaving]     = useState(false);
-
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
-    const [e, c, s, sv] = await Promise.all([
-      apiFetch(`/Waitlist${filter ? `?status=${filter}` : ""}`).then(r => r.ok ? r.json() : []),
-      apiFetch("/Customers?pageSize=200").then(r => r.ok ? r.json() : { items: [] }).then(d => d.items ?? d),
-      apiFetch("/Stylists").then(r => r.ok ? r.json() : []),
-      apiFetch("/Services").then(r => r.ok ? r.json() : []),
-    ]);
-    setEntries(e); setCustomers(c); setStylists(s); setServices(sv);
-    setLoading(false);
-  }, [filter]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fCustomer) { toast.error("Müşteri seçin."); return; }
-    setSaving(true);
-    const r = await apiFetch("/Waitlist", {
-      method: "POST",
-      body: JSON.stringify({
-        customerId:        fCustomer,
-        stylistId:         fStylist || undefined,
-        serviceName:       fService || undefined,
-        preferredDate:     fDate ? new Date(fDate).toISOString() : undefined,
-        preferredTimeFrom: fTimeType === "specific" ? fTimeFrom : undefined,
-        preferredTimeTo:   fTimeType === "specific" ? fTimeTo   : undefined,
-        notes:             fNotes || undefined,
-      }),
-    });
-    setSaving(false);
-    if (r.ok) {
-      toast.success("Bekleme listesine eklendi.");
-      setShowForm(false); setFCustomer(""); setFStylist(""); setFService(""); setFDate(""); setFTimeType("flexible"); setFTimeFrom("09:00"); setFTimeTo("11:00"); setFNotes("");
-      load();
-    } else { toast.error("Eklenemedi."); }
+    try {
+      const [e, s] = await Promise.all([
+        apiFetch("/Waitlist").then(r=>r.json()),
+        apiFetch("/Stylists?activeOnly=true").then(r=>r.json()).catch(()=>[]),
+      ]);
+      setEntries(Array.isArray(e) ? e : []);
+      setStylists(Array.isArray(s) ? s : (s?.items ?? []));
+    } finally { setLoading(false); }
   };
 
-  const remove = async (id: string) => {
-    if (!await confirm("Bu kaydı silmek istediğinize emin misiniz?")) return;
-    const r = await apiFetch(`/Waitlist/${id}`, { method: "DELETE" });
-    if (r.ok) { toast.success("Silindi."); load(); }
-    else toast.error("Silinemedi.");
-  };
+  useEffect(() => { load(); }, []);
 
-  const waiting  = entries.filter(e => e.status === "Waiting").length;
-  const notified = entries.filter(e => e.status === "Notified").length;
+  const ACTIVE = ["Waiting","Notified","OfferSent"];
+  const DONE   = ["Booked","Declined","Cancelled","Expired"];
+
+  const flexible  = entries.filter(e => e.waitingType === "flexible"   && ACTIVE.includes(e.status));
+  const fixedSlot = entries.filter(e => e.waitingType === "fixed_slot" && ACTIVE.includes(e.status));
+  const finished  = entries.filter(e => DONE.includes(e.status));
+
+  const tabSt = (on:boolean): React.CSSProperties => ({
+    padding:"8px 18px",border:"none",cursor:"pointer",fontWeight:600,fontSize:14,
+    borderBottom: on ? "3px solid #6366f1" : "3px solid transparent",
+    background:"none", color: on ? "#6366f1" : "#6b7280",
+  });
+  const badge = (n:number,c="#6366f1") => n > 0 ? <span style={{ marginLeft:6,background:c,color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:11 }}>{n}</span> : null;
+
+  const info = (text:string) => (
+    <div style={{ fontSize:13,color:"#6b7280",background:"#f3f4f6",borderRadius:8,padding:"10px 14px",marginBottom:14 }} dangerouslySetInnerHTML={{ __html: text }}/>
+  );
 
   return (
-    <AppShell
-      title="Bekleme Listesi"
-      description="Doldurulan slotlar için müşteri kuyruğu"
-      actions={
-        <button onClick={() => setShowForm(true)}
-          style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-          + Listeye Ekle
-        </button>
-      }
-    >
-      {/* Stats */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        {[
-          { label: "Bekleyen", value: waiting, color: "#7c3aed", bg: "#ede9fe" },
-          { label: "Bildirildi", value: notified, color: "#92400e", bg: "#fef3c7" },
-        ].map(s => (
-          <div key={s.label} style={{ background: s.bg, borderRadius: 12, padding: "14px 24px", minWidth: 120 }}>
-            <div style={{ fontSize: 24, fontWeight: 900, color: s.color }}>{s.value}</div>
-            <div style={{ fontSize: 12, color: s.color, fontWeight: 600 }}>{s.label}</div>
-          </div>
-        ))}
-      </div>
+    <AppShell>
+      <div style={{ padding:"24px 20px",maxWidth:800,margin:"0 auto" }}>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:22,fontWeight:800 }}>Bekleme Listesi</div>
+          <div style={{ fontSize:14,color:"#6b7280",marginTop:4 }}>Esnek bekleyenlere saat teklifi gönderin · Sabit saatlileri doğrudan onaylayın</div>
+        </div>
 
-      {/* Filter tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-        {(["Waiting", "Notified", "Booked", "Cancelled", ""] as const).map(f => (
-          <button key={f} onClick={() => setFilter(f)}
-            className={`btn ${filter === f ? "btn-primary" : "btn-ghost"}`}
-            style={{ padding: "7px 14px", minHeight: 36, fontSize: 12 }}>
-            {f === "" ? "Tümü" : STATUS_LABEL[f]}
-          </button>
-        ))}
-      </div>
+        <div style={{ display:"flex",borderBottom:"1px solid #e5e7eb",marginBottom:20 }}>
+          <button style={tabSt(tab==="flexible")}   onClick={()=>setTab("flexible")}>🕐 Esnek {badge(flexible.length)}</button>
+          <button style={tabSt(tab==="fixed_slot")} onClick={()=>setTab("fixed_slot")}>📌 Sabit Saat {badge(fixedSlot.length,"#f59e0b")}</button>
+          <button style={tabSt(tab==="done")}       onClick={()=>setTab("done")}>✅ Tamamlananlar {badge(finished.length,"#6b7280")}</button>
+        </div>
 
-      {/* Add form */}
-      {showForm && (
-        <form onSubmit={create} style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 14 }}>Bekleme Listesine Ekle</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={lbl}>Müşteri *</label>
-              <select value={fCustomer} onChange={e => setFCustomer(e.target.value)} required style={inp}>
-                <option value="">Seçin...</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}{c.phone ? ` — ${c.phone}` : ""}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>Stilist (isteğe bağlı)</label>
-              <select value={fStylist} onChange={e => setFStylist(e.target.value)} style={inp}>
-                <option value="">Farklı değil</option>
-                {stylists.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>Hizmet (isteğe bağlı)</label>
-              <select value={fService} onChange={e => setFService(e.target.value)} style={inp}>
-                <option value="">Farklı değil</option>
-                {services.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={lbl}>Tercih Edilen Tarih (isteğe bağlı)</label>
-              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} style={inp} />
-            </div>
-          </div>
-          {/* Time preference */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>Saat Tercihi</label>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              {(["flexible", "specific"] as const).map(opt => (
-                <label key={opt} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "7px 14px", borderRadius: 8, border: `1.5px solid ${fTimeType === opt ? "#7c3aed" : "#e2e8f0"}`, background: fTimeType === opt ? "#faf5ff" : "#fff", fontSize: 12, fontWeight: 700 }}>
-                  <input type="radio" name="fTimeType" value={opt} checked={fTimeType === opt} onChange={() => setFTimeType(opt)} style={{ accentColor: "#7c3aed" }} />
-                  {opt === "flexible" ? "🕐 Tüm gün uygun" : "🎯 Belirli saat aralığı"}
-                </label>
-              ))}
-            </div>
-            {fTimeType === "specific" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={lbl}>Başlangıç</label>
-                  <input type="time" value={fTimeFrom} onChange={e => setFTimeFrom(e.target.value)} style={inp} />
-                </div>
-                <div style={{ paddingTop: 20, color: "#94a3b8", fontWeight: 700 }}>—</div>
-                <div style={{ flex: 1 }}>
-                  <label style={lbl}>Bitiş</label>
-                  <input type="time" value={fTimeTo} onChange={e => setFTimeTo(e.target.value)} style={inp} />
-                </div>
-              </div>
+        {loading ? (
+          <div style={{ textAlign:"center",padding:40,color:"#6b7280" }}>Yükleniyor...</div>
+        ) : (
+          <>
+            {tab === "flexible" && (
+              flexible.length === 0 ? <EmptyState icon="🕐" text="Esnek bekleme listesi boş"/> : (
+                <>{info("Bu müşteriler o gün <strong>herhangi bir boşluğu</strong> kabul eder. Uygun saat açıldığında <strong>Saat Teklifi Gönder</strong> — müşteri e-posta ile onaylarsa randevu otomatik oluşur.")}
+                  {flexible.map(e=><EntryCard key={e.id} entry={e} stylists={stylists} onRefresh={load}/>)}</>
+              )
             )}
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={lbl}>Not (isteğe bağlı)</label>
-            <input value={fNotes} onChange={e => setFNotes(e.target.value)} placeholder="Özel istek veya not..." style={inp} />
-          </div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button type="button" onClick={() => setShowForm(false)} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>İptal</button>
-            <button type="submit" disabled={saving} style={{ padding: "9px 24px", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-              {saving ? "Ekleniyor..." : "Listeye Ekle"}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* List */}
-      {loading ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>
-      ) : entries.length === 0 ? (
-        <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", background: "#fafafa", borderRadius: 12, border: "1px dashed #e2e8f0" }}>
-          Bekleme listesi boş.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {entries.map(e => {
-            const sc = STATUS_COLOR[e.status] ?? { bg: "#f1f5f9", text: "#64748b" };
-            return (
-              <div key={e.id} style={{ background: "#fff", border: "1px solid #f1f5f9", borderRadius: 12, padding: "16px 20px" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-                  {/* Info */}
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{e.customerName}</span>
-                      {e.source === "public" && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "#ede9fe", color: "#7c3aed" }}>Online</span>
-                      )}
-                      {!e.customerId && (
-                        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 999, background: "#fef3c7", color: "#92400e" }}>Müşteri Kaydı Yok</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 3, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      {e.customerPhone && <span>📞 {e.customerPhone}</span>}
-                      {e.customerEmail && <span>✉️ {e.customerEmail}</span>}
-                      {e.serviceName   && <span>✂️ {e.serviceName}</span>}
-                      {e.stylistName   && <span>👤 {e.stylistName}</span>}
-                      {e.preferredDate && (
-                        <span>
-                          📅 {new Date(e.preferredDate).toLocaleDateString("tr-TR")}
-                          {e.preferredTimeFrom && e.preferredTimeTo
-                            ? ` · ⏰ ${e.preferredTimeFrom}–${e.preferredTimeTo}`
-                            : e.preferredTimeFrom
-                            ? ` · ⏰ ${e.preferredTimeFrom} sonrası`
-                            : " · Tüm gün"}
-                        </span>
-                      )}
-                      {e.notes && <span>💬 {e.notes}</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{new Date(e.createdAtUtc).toLocaleDateString("tr-TR")} tarihinde eklendi</div>
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
-                    <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: sc.bg, color: sc.text }}>
-                      {STATUS_LABEL[e.status] ?? e.status}
-                    </span>
-
-                    {/* Onayla — only for Waiting/Notified */}
-                    {(e.status === "Waiting" || e.status === "Notified") && (
-                      <button
-                        onClick={() => setApproveEntry(e)}
-                        style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#dcfce7", color: "#166534", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                        ✅ Onayla
-                      </button>
-                    )}
-
-                    {/* Bildirim gönder — Waiting/Notified */}
-                    {(e.status === "Waiting" || e.status === "Notified") && (
-                      <button
-                        onClick={() => setNotifyEntry(e)}
-                        style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#ede9fe", color: "#7c3aed", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                        📣 Bildir
-                      </button>
-                    )}
-
-                    <button onClick={() => remove(e.id)} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#fef2f2", color: "#b42318", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>Sil</button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Modals */}
-      {approveEntry && (
-        <ApproveModal
-          entry={approveEntry}
-          onClose={() => setApproveEntry(null)}
-          onDone={() => { setApproveEntry(null); load(); }}
-        />
-      )}
-      {notifyEntry && (
-        <NotifyModal
-          entry={notifyEntry}
-          onClose={() => setNotifyEntry(null)}
-          onDone={() => { setNotifyEntry(null); load(); }}
-        />
-      )}
+            {tab === "fixed_slot" && (
+              fixedSlot.length === 0 ? <EmptyState icon="📌" text="Sabit saat bekleme listesi boş"/> : (
+                <>{info("Bu müşteriler yalnızca <strong>belirtilen saat aralığında</strong> gelebilir. O saatte iptal oluşursa <strong>Onayla</strong> — randevu stilist ile otomatik oluşturulur.")}
+                  {fixedSlot.map(e=><EntryCard key={e.id} entry={e} stylists={stylists} onRefresh={load}/>)}</>
+              )
+            )}
+            {tab === "done" && (
+              finished.length === 0 ? <EmptyState icon="✅" text="Tamamlanan kayıt yok"/>
+                : finished.map(e=><EntryCard key={e.id} entry={e} stylists={stylists} onRefresh={load}/>)
+            )}
+          </>
+        )}
+      </div>
     </AppShell>
   );
 }
-
-const lbl: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 4 };
-const inp: React.CSSProperties = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, boxSizing: "border-box", fontFamily: "inherit" };

@@ -777,6 +777,14 @@ public class WaitlistEntry
     // Time preference: null = all-day flexible, otherwise e.g. "09:00"
     public string?   PreferredTimeFrom { get; set; }
     public string?   PreferredTimeTo   { get; set; }
+    // flexible | fixed_slot
+    public string    WaitingType       { get; set; } = "flexible";
+    // Offer system (flexible profile only)
+    public DateTime? OfferedStartAt    { get; set; }
+    public DateTime? OfferedEndAt      { get; set; }
+    public Guid?     OfferToken        { get; set; }
+    public DateTime? OfferExpiresAt    { get; set; }
+    public string?   DeclineNote       { get; set; }
     public DateTime  CreatedAtUtc      { get; set; } = DateTime.UtcNow;
 }
 
@@ -806,6 +814,33 @@ public class UserSalonAccess
     public Guid   SalonId       { get; set; }
     public Salon? Salon         { get; set; }
     public DateTime GrantedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+// ── Packages ──────────────────────────────────────────────────────────────────
+
+public class Package
+{
+    public Guid      Id            { get; set; } = Guid.NewGuid();
+    public Guid      SalonId       { get; set; }
+    public string    Name          { get; set; } = "";
+    public string?   Description   { get; set; }
+    public decimal   TotalPrice    { get; set; }
+    public bool      IsActive      { get; set; } = true;
+    public bool      IsTimeLimited { get; set; } = false;
+    public DateTime? ValidFrom     { get; set; }
+    public DateTime? ValidTo       { get; set; }
+    public DateTime  CreatedAtUtc  { get; set; } = DateTime.UtcNow;
+}
+
+public class PackageItem
+{
+    public Guid    Id          { get; set; } = Guid.NewGuid();
+    public Guid    PackageId   { get; set; }
+    public string  ItemType    { get; set; } = "service"; // service | product
+    public Guid?   ReferenceId { get; set; }
+    public string  ItemName    { get; set; } = "";
+    public int     Quantity    { get; set; } = 1;
+    public decimal UnitPrice   { get; set; }
 }
 
 // ── Google Calendar Integration ───────────────────────────────────────────────

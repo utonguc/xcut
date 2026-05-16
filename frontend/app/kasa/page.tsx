@@ -627,7 +627,8 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
 }) {
   const { toast } = useToast();
   const [search,      setSearch]      = useState("");
-  const [catalogTab,  setCatalogTab]  = useState<"services"|"stock">("services");
+  const [catalogTab,  setCatalogTab]  = useState<"services"|"stock"|"packages">("services");
+  const [packages,    setPackages]    = useState<Array<{ id:string; name:string; totalPrice:number; isActive:boolean; validTo?:string; items:Array<{itemName:string}> }>>([]);
   const [mobilePanel, setMobilePanel] = useState<"catalog"|"cart">("catalog");
   const [showPay,     setShowPay]     = useState(false);
   const [payMethod,  setPayMethod]  = useState<"cash"|"card"|"mixed"|"bank">("cash");
@@ -653,6 +654,17 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
       items: [...prev.items, { id: uid(), serviceId: svc.id, name: svc.name, unitPrice: svc.price, quantity: 1 }],
     }));
   };
+
+  const addPackage = (pkg: { id:string; name:string; totalPrice:number }) => {
+    onUpdate(prev => ({
+      ...prev,
+      items: [...prev.items, { id: uid(), name: `📦 ${pkg.name}`, unitPrice: pkg.totalPrice, quantity: 1 }],
+    }));
+  };
+
+  useEffect(() => {
+    apiFetch("/Packages?activeOnly=true").then(r=>r.json()).then(d => setPackages(Array.isArray(d)?d:[])).catch(()=>{});
+  }, []);
 
   const addStockItem = (item: StockItem) => {
     onUpdate(prev => ({
@@ -842,27 +854,46 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
         {/* Catalog */}
         <div style={{ display: isMobile && mobilePanel === "cart" ? "none" : "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
           <div style={{ display: "flex", gap: 0, borderRadius: 10, border: "1px solid #e9d5ff", overflow: "hidden", flexShrink: 0 }}>
-            {(["services","stock"] as const).map((t, i) => (
+            {(["services","stock","packages"] as const).map((t, i) => (
               <button key={t} onClick={() => setCatalogTab(t)} style={{
                 flex: 1, padding: "8px 0", border: "none",
                 background: catalogTab === t ? "#7c3aed" : "#fff",
                 color: catalogTab === t ? "#fff" : "#64748b",
                 fontWeight: 700, fontSize: 12, cursor: "pointer",
-                borderRight: i === 0 ? "1px solid #e9d5ff" : "none",
+                borderRight: i < 2 ? "1px solid #e9d5ff" : "none",
               }}>
-                {t === "services" ? "💇 Hizmetler" : "📦 Stok Ürünleri"}
+                {t === "services" ? "💇 Hizmetler" : t === "stock" ? "📦 Stok" : "🎁 Paketler"}
               </button>
             ))}
           </div>
 
-          <input
-            placeholder={catalogTab === "services" ? "🔍 Hizmet ara..." : "🔍 Ürün ara..."}
-            value={search} onChange={e => setSearch(e.target.value)}
-            style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, outline: "none" }}
-          />
+          {catalogTab !== "packages" && (
+            <input
+              placeholder={catalogTab === "services" ? "🔍 Hizmet ara..." : "🔍 Ürün ara..."}
+              value={search} onChange={e => setSearch(e.target.value)}
+              style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, outline: "none" }}
+            />
+          )}
 
           <div style={{ overflowY: "auto", flex: isMobile ? undefined : 1, maxHeight: isMobile ? "50vh" : undefined }}>
-            {catalogTab === "services" ? (
+            {catalogTab === "packages" ? (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))", gap:7 }}>
+                {packages.length === 0 && <div style={{ color:"#94a3b8",fontSize:14,textAlign:"center",paddingTop:40,gridColumn:"1/-1" }}>Aktif paket bulunamadı</div>}
+                {packages.filter(p => p.isActive && (!p.validTo || new Date(p.validTo) > new Date())).map(pkg => (
+                  <button key={pkg.id} onClick={() => addPackage(pkg)} style={{
+                    padding:"11px 13px", borderRadius:10, border:"1px solid #fde68a",
+                    background:"#fffbeb", cursor:"pointer", textAlign:"left",
+                  }}
+                    onMouseOver={e=>{ const el=e.currentTarget as HTMLElement; el.style.background="#fef3c7"; el.style.borderColor="#f59e0b"; }}
+                    onMouseOut={e=>{ const el=e.currentTarget as HTMLElement; el.style.background="#fffbeb"; el.style.borderColor="#fde68a"; }}
+                  >
+                    <div style={{ fontWeight:700, fontSize:12, color:"#0f172a", marginBottom:3 }}>🎁 {pkg.name}</div>
+                    <div style={{ fontSize:14, fontWeight:900, color:"#d97706" }}>₺{pkg.totalPrice.toLocaleString("tr-TR")}</div>
+                    <div style={{ fontSize:10, color:"#92400e", marginTop:2 }}>{pkg.items.map(i=>i.itemName).join(", ")}</div>
+                  </button>
+                ))}
+              </div>
+            ) : catalogTab === "services" ? (
               <>
                 {cats.map(cat => (
                   <div key={cat} style={{ marginBottom: 16 }}>

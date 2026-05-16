@@ -13,7 +13,7 @@ import {
   ShoppingCart, CheckSquare, DollarSign, Globe,
   Settings, Bell, Search, Menu, X, LogOut, ChevronLeft,
   ChevronRight, Sparkles, HeadphonesIcon, CreditCard, ShieldCheck,
-  BarChart3, ClipboardList, UserCog, Monitor, Mail, Tv,
+  BarChart3, ClipboardList, UserCog, Monitor, Mail, Tv, Gift,
 } from "lucide-react";
 import { exitImpersonation, getImpersonatingSalon, setToken } from "@/lib/api";
 
@@ -106,6 +106,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/raporlar",     label: "Raporlar",        Icon: BarChart3,       module: "reports" },
       { href: "/tasks",        label: "Görevler",        Icon: CheckSquare,     module: "tasks" },
+      { href: "/paketler",     label: "Paketler",        Icon: Gift,            module: "kasa" },
       { href: "/website",      label: "Web Sitesi",      Icon: Globe,           module: "website" },
     ],
   },

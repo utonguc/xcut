@@ -806,5 +806,40 @@ public static class SchemaUpdater
         ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerFirstName" text;
         ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerLastName"  text;
 
+        -- WaitlistEntries: waiting type + offer system
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "WaitingType"    text NOT NULL DEFAULT 'flexible';
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "OfferedStartAt" timestamptz;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "OfferedEndAt"   timestamptz;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "OfferToken"     uuid;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "OfferExpiresAt" timestamptz;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "DeclineNote"    text;
+        CREATE INDEX IF NOT EXISTS ix_waitlist_offertoken ON "WaitlistEntries"("OfferToken") WHERE "OfferToken" IS NOT NULL;
+
+        -- Packages system
+        CREATE TABLE IF NOT EXISTS "Packages" (
+            "Id"          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+            "SalonId"     uuid        NOT NULL REFERENCES "Salons"("Id") ON DELETE CASCADE,
+            "Name"        text        NOT NULL,
+            "Description" text,
+            "TotalPrice"  numeric(10,2) NOT NULL DEFAULT 0,
+            "IsActive"    boolean     NOT NULL DEFAULT true,
+            "IsTimeLimited" boolean   NOT NULL DEFAULT false,
+            "ValidFrom"   timestamptz,
+            "ValidTo"     timestamptz,
+            "CreatedAtUtc" timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_packages_salon ON "Packages"("SalonId");
+
+        CREATE TABLE IF NOT EXISTS "PackageItems" (
+            "Id"          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+            "PackageId"   uuid        NOT NULL REFERENCES "Packages"("Id") ON DELETE CASCADE,
+            "ItemType"    text        NOT NULL DEFAULT 'service',
+            "ReferenceId" uuid,
+            "ItemName"    text        NOT NULL,
+            "Quantity"    integer     NOT NULL DEFAULT 1,
+            "UnitPrice"   numeric(10,2) NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS ix_packageitems_package ON "PackageItems"("PackageId");
+
         """;
 }

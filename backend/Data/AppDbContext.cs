@@ -63,6 +63,8 @@ public class AppDbContext : DbContext
     public DbSet<KioskMedia>            KioskMediaItems        => Set<KioskMedia>();
     public DbSet<KioskPairingRequest>   KioskPairingRequests   => Set<KioskPairingRequest>();
     public DbSet<WaitlistEntry>         WaitlistEntries        => Set<WaitlistEntry>();
+    public DbSet<Package>               Packages               => Set<Package>();
+    public DbSet<PackageItem>           PackageItems           => Set<PackageItem>();
     public DbSet<CustomerPhoto>         CustomerPhotos         => Set<CustomerPhoto>();
     public DbSet<GoogleCalendarToken>   GoogleCalendarTokens   => Set<GoogleCalendarToken>();
     public DbSet<StylistService>        StylistServices        => Set<StylistService>();
