@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 type Role           = { id: string; name: string; displayName: string; description: string; color: string; modules: string[]; isSelfOnly: boolean };
 type UserItem       = { id: string; fullName: string; userName: string; email: string; isActive: boolean; roleId?: string; roleName?: string };
-type OrgSettings    = { id: string; companyName: string; applicationTitle: string; logoUrl?: string; primaryColor: string };
+type OrgSettings    = { id: string; companyName: string; applicationTitle: string; logoUrl?: string; primaryColor: string; mfaEnabled?: boolean };
 type BankAccount    = { id: string; bankName: string; accountName: string; iban?: string; isActive: boolean };
 type PermGroup      = { id: string; name: string; description?: string; allowedModules: string[]; isSelfOnly: boolean; isBuiltIn: boolean; userCount: number; users: { id: string; fullName: string; email: string; role?: string }[] };
 
@@ -45,13 +46,31 @@ const ROLE_COLOR: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const [tab,        setTab]        = useState<"org" | "users" | "banka" | "yetki" | "security">("org");
+  const { toast } = useToast();
+  const [tab,        setTab]        = useState<"org" | "users" | "banka" | "yetki" | "security" | "entegrasyon" | "bildirimler">("org");
   const [isSelfOnly, setIsSelfOnly] = useState(false);
 
   useEffect(() => {
     apiFetch("/Auth/me").then(r => r.ok ? r.json() : null).then(d => {
       if (d?.isSelfOnly) { setIsSelfOnly(true); setTab("security"); }
     });
+    // Handle Google OAuth callback redirect
+    const params = new URLSearchParams(window.location.search);
+    const gcal = params.get("gcal");
+    if (gcal === "connected") {
+      toast.success("Salon Google Calendar başarıyla bağlandı!");
+      setTab("entegrasyon");
+      window.history.replaceState({}, "", "/ayarlar");
+    } else if (gcal === "self_connected") {
+      toast.success("Kişisel Google Takviminiz başarıyla bağlandı!");
+      setTab("entegrasyon");
+      window.history.replaceState({}, "", "/ayarlar");
+    } else if (gcal === "error") {
+      toast.error("Google Calendar bağlantısı başarısız oldu.");
+      setTab("entegrasyon");
+      window.history.replaceState({}, "", "/ayarlar");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (isSelfOnly) {
@@ -66,11 +85,13 @@ export default function SettingsPage() {
     <AppShell title="Ayarlar" description="Kurum, kullanıcı ve güvenlik yönetimi">
       <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#f1f5f9", borderRadius: 12, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
         {([
-          ["org",      "🏢 Kurum"],
-          ["users",    "👥 Kullanıcılar"],
-          ["banka",    "🏦 Banka Hesapları"],
-          ["yetki",    "🔐 Yetki Grupları"],
-          ["security", "🔒 Güvenlik"],
+          ["org",         "🏢 Kurum"],
+          ["users",       "👥 Kullanıcılar"],
+          ["banka",       "🏦 Banka Hesapları"],
+          ["yetki",       "🔐 Yetki Grupları"],
+          ["bildirimler",  "🔔 Bildirimler"],
+          ["entegrasyon",  "🔗 Entegrasyonlar"],
+          ["security",     "🔒 Güvenlik"],
         ] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)} style={{
             padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
@@ -82,11 +103,13 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {tab === "org"      && <OrgTab />}
-      {tab === "users"    && <UsersTab />}
-      {tab === "banka"    && <BankaTab />}
-      {tab === "yetki"    && <YetkiTab />}
-      {tab === "security" && <SecurityTab />}
+      {tab === "org"         && <OrgTab />}
+      {tab === "users"       && <UsersTab />}
+      {tab === "banka"       && <BankaTab />}
+      {tab === "yetki"       && <YetkiTab />}
+      {tab === "bildirimler"  && <BildirimlerTab />}
+      {tab === "entegrasyon"  && <EntegrasyonlarTab />}
+      {tab === "security"     && <SecurityTab />}
     </AppShell>
   );
 }
@@ -105,7 +128,7 @@ function OrgTab() {
     setSaving(true);
     const r = await apiFetch("/Settings/organization", {
       method: "PUT",
-      body: JSON.stringify({ companyName: org.companyName, applicationTitle: org.applicationTitle, logoUrl: org.logoUrl, primaryColor: org.primaryColor }),
+      body: JSON.stringify({ companyName: org.companyName, applicationTitle: org.applicationTitle, logoUrl: org.logoUrl, primaryColor: org.primaryColor, mfaEnabled: org.mfaEnabled ?? false }),
     });
     const d = await r.json().catch(() => ({}));
     setSaving(false);
@@ -162,6 +185,32 @@ function OrgTab() {
               <div style={{ width: 44, height: 44, borderRadius: 10, background: org.primaryColor, border: "1px solid #e4e7ec", flexShrink: 0 }} />
             </div>
           ))}
+
+          {/* MFA Toggle */}
+          <div style={{ padding: "16px", borderRadius: 12, border: "1px solid var(--border,#e4e7ec)", background: "var(--surface-2,#f8fafc)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text,#101828)", marginBottom: 4 }}>🔐 İki Adımlı Doğrulama (MFA)</div>
+                <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
+                  Açık olduğunda kullanıcılar şifre girişinden sonra e-posta adreslerine gelen 6 haneli kodu girerek giriş yapar.
+                </div>
+              </div>
+              <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, flexShrink: 0, cursor: "pointer" }}>
+                <input type="checkbox" checked={org.mfaEnabled ?? false} onChange={e => setOrg(p => ({ ...p, mfaEnabled: e.target.checked }))}
+                  style={{ opacity: 0, width: 0, height: 0 }} />
+                <span style={{
+                  position: "absolute", inset: 0, borderRadius: 13, transition: ".2s",
+                  background: org.mfaEnabled ? "#7c3aed" : "#d1d5db",
+                }}>
+                  <span style={{
+                    position: "absolute", top: 3, left: org.mfaEnabled ? 25 : 3, width: 20, height: 20,
+                    borderRadius: "50%", background: "#fff", transition: ".2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+                  }} />
+                </span>
+              </label>
+            </div>
+          </div>
 
           {msg && (
             <div style={{
@@ -366,6 +415,7 @@ function UsersTab() {
 }
 
 function BankaTab() {
+  const { toast, confirm } = useToast();
   const [banks,    setBanks]    = useState<BankAccount[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editing,  setEditing]  = useState<BankAccount | null>(null);
@@ -409,7 +459,8 @@ function BankaTab() {
   };
 
   const del = async (id: string) => {
-    if (!confirm("Bu hesabı silmek istediğinizden emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu hesabı silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/BankAccount/${id}`, { method: "DELETE" });
     load();
   };
@@ -543,6 +594,7 @@ function SecurityTab() {
    YETKİ GRUPLARI TAB
    ════════════════════════════════════════════════════════════════════ */
 function YetkiTab() {
+  const { toast, confirm } = useToast();
   const [groups,      setGroups]      = useState<PermGroup[]>([]);
   const [users,       setUsers]       = useState<UserItem[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -579,11 +631,12 @@ function YetkiTab() {
       ? await apiFetch(`/PermissionGroup/${editGroup.id}`, { method: "PUT",  body: JSON.stringify(body) })
       : await apiFetch("/PermissionGroup",                  { method: "POST", body: JSON.stringify(body) });
     setSaving(false);
-    if (r.ok) { setShowForm(false); load(); } else alert("Kaydedilemedi.");
+    if (r.ok) { setShowForm(false); load(); } else toast.error("Kaydedilemedi.");
   };
 
   const del = async (g: PermGroup) => {
-    if (!confirm(`"${g.name}" grubunu silmek istiyor musunuz?`)) return;
+    const ok = await confirm({ message: `"${g.name}" grubunu silmek istiyor musunuz?`, danger: true });
+    if (!ok) return;
     await apiFetch(`/PermissionGroup/${g.id}`, { method: "DELETE" });
     load();
   };
@@ -592,7 +645,7 @@ function YetkiTab() {
     const uid = addUserId[groupId];
     if (!uid) return;
     const r = await apiFetch(`/PermissionGroup/${groupId}/users`, { method: "POST", body: JSON.stringify({ userId: uid }) });
-    if (r.ok) { setAddUserId(prev => ({ ...prev, [groupId]: "" })); load(); } else alert("Eklenemedi.");
+    if (r.ok) { setAddUserId(prev => ({ ...prev, [groupId]: "" })); load(); } else toast.error("Eklenemedi.");
   };
 
   const removeUser = async (groupId: string, userId: string) => {
@@ -711,3 +764,558 @@ function YetkiTab() {
 
 const lblSt: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 5 };
 const inpSt: React.CSSProperties = { width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 14, fontFamily: "inherit", boxSizing: "border-box", outline: "none" };
+
+/* ════════════════════════════════════════════════════════════════════
+   BİLDİRİMLER TAB
+   ════════════════════════════════════════════════════════════════════ */
+
+type NotifChannels = { email: boolean; whatsapp: boolean; sms: boolean };
+type NotifEntry    = { enabled: boolean } & NotifChannels & { minutesBefore?: number; daysAfter?: number };
+type NotifConfig   = Record<string, NotifEntry>;
+
+const NOTIF_TYPES: { key: string; label: string; icon: string; desc: string; extras?: React.ReactNode }[] = [
+  { key: "booking_approved",       label: "Randevu Onayı",            icon: "✅", desc: "Talep onaylandığında müşteriye gönderilir." },
+  { key: "booking_rejected",       label: "Randevu Reddi",            icon: "❌", desc: "Talep reddedildiğinde müşteriye gönderilir." },
+  { key: "appointment_reminder",   label: "Randevu Hatırlatma",       icon: "⏰", desc: "Randevudan önce otomatik hatırlatma." },
+  { key: "welcome",                label: "Hoş Geldin",               icon: "👋", desc: "Yeni müşteri kayıt olduğunda gönderilir." },
+  { key: "birthday",               label: "Doğum Günü",               icon: "🎂", desc: "Müşterinin doğum gününde gönderilir." },
+  { key: "receipt",                label: "Adisyon / Fatura",         icon: "🧾", desc: "Kasa kapandığında müşteriye gönderilir." },
+  { key: "win_back",               label: "Geri Kazan",               icon: "💌", desc: "Uzun süre gelmemiş müşteriler için." },
+  { key: "goodbye",                label: "Hoşçakal",                 icon: "👋", desc: "Hesabı silinen veya ayrılan müşterilere." },
+];
+
+const DEFAULT_ENTRY: NotifEntry = { enabled: false, email: true, whatsapp: false, sms: false };
+
+function BildirimlerTab() {
+  const { toast } = useToast();
+  const [config,  setConfig]  = useState<NotifConfig>({});
+  const [orgData, setOrgData] = useState<Record<string, unknown>>({});
+  const [saving,  setSaving]  = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch("/Settings/organization").then(r => r.ok ? r.json() : null).then(d => {
+      if (d) {
+        setOrgData(d);
+        if (d.notificationConfig) {
+          try { setConfig(JSON.parse(d.notificationConfig as string)); } catch { /* ignore */ }
+        }
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const entry = (key: string): NotifEntry => ({ ...DEFAULT_ENTRY, ...(config[key] ?? {}) });
+
+  const update = (key: string, patch: Partial<NotifEntry>) =>
+    setConfig(prev => ({ ...prev, [key]: { ...entry(key), ...patch } }));
+
+  const save = async () => {
+    setSaving(true);
+    const r = await apiFetch("/Settings/organization", {
+      method: "PUT",
+      body: JSON.stringify({
+        companyName:      orgData.companyName      ?? "",
+        applicationTitle: orgData.applicationTitle ?? "",
+        logoUrl:          orgData.logoUrl          ?? "",
+        primaryColor:     orgData.primaryColor     ?? "#7c3aed",
+        mfaEnabled:       orgData.mfaEnabled       ?? false,
+        notificationConfig: JSON.stringify(config),
+      }),
+    });
+    setSaving(false);
+    if (r.ok) toast.success("Bildirim ayarları kaydedildi.");
+    else      toast.error("Kaydedilemedi.");
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>;
+
+  return (
+    <div style={{ maxWidth: 720 }}>
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20, lineHeight: 1.6 }}>
+        Sistem tarafından otomatik gönderilecek bildirimleri ve hangi kanallardan iletileceğini buradan yönetin.
+        <br />
+        <span style={{ fontSize: 11, color: "#94a3b8" }}>WhatsApp ve SMS kanalları ilgili entegrasyon tamamlanınca etkinleşir.</span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+        {NOTIF_TYPES.map(nt => {
+          const e = entry(nt.key);
+          return (
+            <div key={nt.key} style={{
+              background: "var(--surface,#fff)", borderRadius: 14,
+              border: `1px solid ${e.enabled ? "#e9d5ff" : "#eaecf0"}`,
+              overflow: "hidden",
+            }}>
+              {/* Header row */}
+              <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>{nt.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{nt.label}</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{nt.desc}</div>
+                </div>
+                {/* Toggle */}
+                <label style={{ position: "relative", display: "inline-block", width: 48, height: 26, flexShrink: 0, cursor: "pointer" }}>
+                  <input type="checkbox" checked={e.enabled} onChange={ev => update(nt.key, { enabled: ev.target.checked })}
+                    style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ position: "absolute", inset: 0, borderRadius: 13, transition: ".2s", background: e.enabled ? "#7c3aed" : "#d1d5db" }}>
+                    <span style={{
+                      position: "absolute", top: 3, left: e.enabled ? 25 : 3, width: 20, height: 20,
+                      borderRadius: "50%", background: "#fff", transition: ".2s", boxShadow: "0 1px 3px rgba(0,0,0,.2)",
+                    }} />
+                  </span>
+                </label>
+              </div>
+
+              {/* Channel selectors — only visible when enabled */}
+              {e.enabled && (
+                <div style={{ padding: "0 20px 14px", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {(["email", "whatsapp", "sms"] as const).map(ch => (
+                    <label key={ch} style={{
+                      display: "flex", alignItems: "center", gap: 7, padding: "6px 14px",
+                      borderRadius: 20, cursor: "pointer", fontSize: 13, fontWeight: 600,
+                      border: `1px solid ${e[ch] ? "#7c3aed" : "#e2e8f0"}`,
+                      background: e[ch] ? "#f5f3ff" : "#f8fafc",
+                      color: e[ch] ? "#7c3aed" : "#64748b",
+                    }}>
+                      <input type="checkbox" checked={e[ch]} onChange={ev => update(nt.key, { [ch]: ev.target.checked })}
+                        style={{ accentColor: "#7c3aed", width: 14, height: 14 }} />
+                      {ch === "email" ? "📧 E-posta" : ch === "whatsapp" ? "💬 WhatsApp" : "📱 SMS"}
+                    </label>
+                  ))}
+
+                  {nt.key === "appointment_reminder" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", fontSize: 13 }}>
+                      <span style={{ color: "#64748b" }}>Randevudan</span>
+                      <input type="number" min={10} max={10080} value={e.minutesBefore ?? 60}
+                        onChange={ev => update(nt.key, { minutesBefore: Number(ev.target.value) })}
+                        style={{ width: 72, padding: "5px 8px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, textAlign: "center" }} />
+                      <span style={{ color: "#64748b" }}>dakika önce</span>
+                    </div>
+                  )}
+
+                  {nt.key === "win_back" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", fontSize: 13 }}>
+                      <span style={{ color: "#64748b" }}>Son ziyaretten</span>
+                      <input type="number" min={7} max={365} value={e.daysAfter ?? 30}
+                        onChange={ev => update(nt.key, { daysAfter: Number(ev.target.value) })}
+                        style={{ width: 72, padding: "5px 8px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, textAlign: "center" }} />
+                      <span style={{ color: "#64748b" }}>gün sonra</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button onClick={save} disabled={saving} style={{
+          padding: "10px 28px", borderRadius: 10, border: "none",
+          background: saving ? "#a78bfa" : "#7c3aed", color: "#fff",
+          fontWeight: 700, fontSize: 13, cursor: saving ? "not-allowed" : "pointer",
+        }}>
+          {saving ? "Kaydediliyor..." : "Kaydet"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── KioskTab ─────────────────────────────────────────────────────────────────
+
+type KioskCode = { id: string; code: string; label?: string; isActive: boolean; expiresAtUtc?: string; createdAtUtc: string };
+
+function KioskTab() {
+  const { toast, confirm } = useToast();
+  const [codes,    setCodes]    = useState<KioskCode[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [label,    setLabel]    = useState("");
+  const [expires,  setExpires]  = useState("");
+  const [saving,   setSaving]   = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const r = await apiFetch("/Kiosk/codes");
+    if (r.ok) setCodes(await r.json());
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const r = await apiFetch("/Kiosk/codes", {
+      method: "POST",
+      body: JSON.stringify({ label: label || undefined, expiresAtUtc: expires ? new Date(expires).toISOString() : undefined }),
+    });
+    setSaving(false);
+    if (r.ok) {
+      setLabel(""); setExpires(""); setShowForm(false);
+      toast.success("Kiosk kodu oluşturuldu.");
+      load();
+    } else {
+      toast.error("Kod oluşturulamadı.");
+    }
+  };
+
+  const toggle = async (id: string) => {
+    const r = await apiFetch(`/Kiosk/codes/${id}/toggle`, { method: "PATCH" });
+    if (r.ok) { toast.success("Durum güncellendi."); load(); }
+    else toast.error("Güncellenemedi.");
+  };
+
+  const remove = async (id: string, code: string) => {
+    const ok = await confirm(`"${code}" kodunu silmek istediğinize emin misiniz?`);
+    if (!ok) return;
+    const r = await apiFetch(`/Kiosk/codes/${id}`, { method: "DELETE" });
+    if (r.ok) { toast.success("Kod silindi."); load(); }
+    else toast.error("Silinemedi.");
+  };
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>📺 Kiosk Kodları</div>
+          <div style={{ fontSize: 13, color: "#64748b" }}>
+            TV ekranında sıra takibi için kiosk kodları oluşturun. Giriş ekranında &ldquo;Kiosk Modu&rdquo; seçilerek kullanılır.
+          </div>
+        </div>
+        <button onClick={() => setShowForm(true)} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          + Yeni Kod
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={create} style={{ background: "#faf5ff", border: "1px solid #e9d5ff", borderRadius: 14, padding: 20, marginBottom: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Yeni Kiosk Kodu</div>
+          <div>
+            <label style={lblSt}>Etiket (isteğe bağlı)</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Örn: Ana Ekran, Bekleme Odası…" style={inpSt} />
+          </div>
+          <div>
+            <label style={lblSt}>Son Kullanım Tarihi (isteğe bağlı)</label>
+            <input type="date" value={expires} onChange={e => setExpires(e.target.value)} style={inpSt} />
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <button type="button" onClick={() => setShowForm(false)} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>İptal</button>
+            <button type="submit" disabled={saving} style={{ padding: "9px 24px", borderRadius: 10, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              {saving ? "Oluşturuluyor..." : "Oluştur"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>
+      ) : codes.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", background: "#fafafa", borderRadius: 12, border: "1px dashed #e2e8f0" }}>
+          Henüz kiosk kodu oluşturulmadı.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {codes.map(c => (
+            <div key={c.id} style={{
+              background: "#fff", border: `1px solid ${c.isActive ? "#e9d5ff" : "#e2e8f0"}`,
+              borderRadius: 12, padding: "14px 20px",
+              display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+            }}>
+              <div style={{
+                fontFamily: "monospace", fontSize: 20, fontWeight: 900, letterSpacing: 2,
+                color: c.isActive ? "#7c3aed" : "#94a3b8", flexShrink: 0,
+              }}>{c.code}</div>
+              <div style={{ flex: 1, minWidth: 120 }}>
+                {c.label && <div style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{c.label}</div>}
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                  Oluşturuldu: {new Date(c.createdAtUtc).toLocaleDateString("tr-TR")}
+                  {c.expiresAtUtc && ` • Geçerli: ${new Date(c.expiresAtUtc).toLocaleDateString("tr-TR")}'e kadar`}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <span style={{
+                  padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                  background: c.isActive ? "#f0fdf4" : "#f1f5f9",
+                  color: c.isActive ? "#166534" : "#64748b",
+                }}>{c.isActive ? "Aktif" : "Pasif"}</span>
+                <button onClick={() => toggle(c.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", fontWeight: 600, fontSize: 12, cursor: "pointer", color: "#344054" }}>
+                  {c.isActive ? "Devre Dışı" : "Aktif Et"}
+                </button>
+                <button onClick={() => remove(c.id, c.code)} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#fef2f2", fontWeight: 700, fontSize: 12, cursor: "pointer", color: "#b42318" }}>
+                  Sil
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── EntegrasyonlarTab ─────────────────────────────────────────────────────────
+
+type GCalStatus = { isConnected: boolean; calendarName?: string; connectedAt?: string; connectedEmail?: string; isConfigured: boolean };
+
+function GCalCard({
+  title, subtitle, status, loading, onConnect, onDisconnect, onSync,
+  connecting, syncing, showSync,
+}: {
+  title: string; subtitle: string;
+  status: GCalStatus | null; loading: boolean;
+  onConnect: () => void; onDisconnect: () => void; onSync?: () => void;
+  connecting: boolean; syncing?: boolean; showSync?: boolean;
+}) {
+  return (
+    <div style={{ background: "var(--surface,#fff)", borderRadius: 16, border: "1px solid #eaecf0", padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+          📅
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>{title}</div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>{subtitle}</div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ color: "#94a3b8", fontSize: 13 }}>Yükleniyor...</div>
+      ) : !status?.isConfigured ? (
+        <div style={{ padding: "12px 16px", borderRadius: 10, background: "#fef3f2", border: "1px solid #fecaca", fontSize: 13, color: "#b42318" }}>
+          ⚠️ Google entegrasyonu henüz yapılandırılmamış.
+        </div>
+      ) : status?.isConnected ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 10, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+            <span style={{ color: "#16a34a", fontSize: 18 }}>✓</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "#166534" }}>Bağlantı aktif</div>
+              {status.calendarName && <div style={{ fontSize: 12, color: "#166534" }}>{status.calendarName}</div>}
+              {status.connectedEmail && <div style={{ fontSize: 11, color: "#4ade80" }}>{status.connectedEmail}</div>}
+              {status.connectedAt && <div style={{ fontSize: 11, color: "#86efac" }}>Bağlandı: {new Date(status.connectedAt).toLocaleDateString("tr-TR")}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            {showSync && onSync && (
+              <button onClick={onSync} disabled={syncing} style={{
+                flex: 1, padding: "10px 0", borderRadius: 10, border: "none",
+                background: syncing ? "#a78bfa" : "#7c3aed", color: "#fff",
+                fontWeight: 700, fontSize: 13, cursor: syncing ? "not-allowed" : "pointer",
+              }}>
+                {syncing ? "Senkronize ediliyor..." : "🔄 Senkronize Et"}
+              </button>
+            )}
+            <button onClick={onDisconnect} style={{
+              padding: "10px 18px", borderRadius: 10, border: "1px solid #fee2e2",
+              background: "#fef2f2", color: "#b42318", fontWeight: 700, fontSize: 13, cursor: "pointer",
+            }}>
+              Bağlantıyı Kes
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>
+            Google hesabınıza bağlanarak randevularınızı otomatik olarak takviminize aktarın.
+          </div>
+          <button onClick={onConnect} disabled={connecting} style={{
+            width: "100%", padding: "12px 0", borderRadius: 10,
+            border: "1px solid #e2e8f0", background: "#fff",
+            fontWeight: 700, fontSize: 14, cursor: connecting ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            boxShadow: "0 1px 3px rgba(0,0,0,0.08)", opacity: connecting ? 0.7 : 1,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            {connecting ? "Google'a yönlendiriliyor..." : "Google ile Bağlan"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EntegrasyonlarTab() {
+  const { toast } = useToast();
+  const [salonStatus, setSalonStatus]   = useState<GCalStatus | null>(null);
+  const [selfStatus,  setSelfStatus]    = useState<GCalStatus | null>(null);
+  const [myRole,      setMyRole]        = useState<string>("");
+  const [loading,     setLoading]       = useState(true);
+  const [salonConn,   setSalonConn]     = useState(false);
+  const [selfConn,    setSelfConn]      = useState(false);
+  const [syncing,     setSyncing]       = useState(false);
+  const [selfSyncing, setSelfSyncing]   = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [r1, r2, r3] = await Promise.all([
+      apiFetch("/GoogleCalendar/status"),
+      apiFetch("/GoogleCalendar/status?forSelf=true"),
+      apiFetch("/Auth/me"),
+    ]);
+    if (r1.ok) setSalonStatus(await r1.json());
+    if (r2.ok) setSelfStatus(await r2.json());
+    if (r3.ok) { const me = await r3.json(); setMyRole(me.role ?? ""); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const connectSalon = async () => {
+    setSalonConn(true);
+    const r = await apiFetch("/GoogleCalendar/auth-url");
+    if (r.ok) { const { url } = await r.json(); window.location.href = url; }
+    else { toast.error("Bağlantı başlatılamadı."); setSalonConn(false); }
+  };
+
+  const disconnectSalon = async () => {
+    const r = await apiFetch("/GoogleCalendar/disconnect", { method: "DELETE" });
+    if (r.ok) { toast.success("Salon Calendar bağlantısı kesildi."); load(); }
+    else toast.error("Bağlantı kesilemedi.");
+  };
+
+  const sync = async () => {
+    setSyncing(true);
+    const r = await apiFetch("/GoogleCalendar/sync", { method: "POST" });
+    const d = await r.json().catch(() => ({})) as { message?: string };
+    setSyncing(false);
+    if (r.ok) toast.success(d.message ?? "Senkronize edildi.");
+    else toast.error("Senkronizasyon başarısız.");
+  };
+
+  const connectSelf = async () => {
+    setSelfConn(true);
+    const r = await apiFetch("/GoogleCalendar/auth-url?forSelf=true");
+    if (r.ok) { const { url } = await r.json(); window.location.href = url; }
+    else { toast.error("Bağlantı başlatılamadı."); setSelfConn(false); }
+  };
+
+  const disconnectSelf = async () => {
+    const r = await apiFetch("/GoogleCalendar/disconnect?forSelf=true", { method: "DELETE" });
+    if (r.ok) { toast.success("Kişisel Calendar bağlantısı kesildi."); load(); }
+    else toast.error("Bağlantı kesilemedi.");
+  };
+
+  const syncSelf = async () => {
+    setSelfSyncing(true);
+    const r = await apiFetch("/GoogleCalendar/sync-personal", { method: "POST" });
+    const d = await r.json().catch(() => ({})) as { message?: string };
+    setSelfSyncing(false);
+    if (r.ok) toast.success(d.message ?? "Kişisel takvim senkronize edildi.");
+    else toast.error("Senkronizasyon başarısız.");
+  };
+
+  const isStylist   = myRole === "Stilist";
+  const selfSubtitle = isStylist
+    ? "Atanan randevularınız kişisel takviminize aktarılır"
+    : "Tüm salon randevuları kişisel takviminize aktarılır";
+
+  return (
+    <div style={{ maxWidth: 560, display: "flex", flexDirection: "column", gap: 16 }}>
+      <GCalCard
+        title="Salon Google Calendar"
+        subtitle="Tüm randevular otomatik olarak salon takvimine aktarılır"
+        status={salonStatus}
+        loading={loading}
+        onConnect={connectSalon}
+        onDisconnect={disconnectSalon}
+        onSync={sync}
+        connecting={salonConn}
+        syncing={syncing}
+        showSync
+      />
+      <GCalCard
+        title="Kişisel Google Takvim"
+        subtitle={selfSubtitle}
+        status={selfStatus}
+        loading={loading}
+        onConnect={connectSelf}
+        onDisconnect={disconnectSelf}
+        onSync={syncSelf}
+        connecting={selfConn}
+        syncing={selfSyncing}
+        showSync
+      />
+      <WhatsAppSettingsCard />
+    </div>
+  );
+}
+
+function WhatsAppSettingsCard() {
+  const { toast } = useToast();
+  const [isActive,   setIsActive]   = useState(false);
+  const [apiToken,   setApiToken]   = useState("");
+  const [phoneNumId, setPhoneNumId] = useState("");
+  const [fromNumber, setFromNumber] = useState("");
+  const [hasToken,   setHasToken]   = useState(false);
+  const [saving,     setSaving]     = useState(false);
+
+  useEffect(() => {
+    apiFetch("/WhatsApp/settings").then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      setIsActive(d.isActive);
+      setPhoneNumId(d.phoneNumberId ?? "");
+      setFromNumber(d.fromNumber ?? "");
+      setHasToken(d.hasToken);
+    });
+  }, []);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const r = await apiFetch("/WhatsApp/settings", {
+      method: "PUT",
+      body: JSON.stringify({ isActive, apiToken: apiToken || undefined, phoneNumberId: phoneNumId || undefined, fromNumber: fromNumber || undefined }),
+    });
+    setSaving(false);
+    if (r.ok) { setApiToken(""); setHasToken(true); toast.success("WhatsApp ayarları kaydedildi."); }
+    else toast.error("Kaydedilemedi.");
+  };
+
+  return (
+    <div style={{ background: "var(--surface,#fff)", borderRadius: 16, border: "1px solid #eaecf0", padding: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+          💬
+        </div>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>WhatsApp Business API</div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>Meta Business API entegrasyonu</div>
+        </div>
+        <label style={{ marginLeft: "auto", position: "relative", display: "inline-block", width: 48, height: 26, flexShrink: 0, cursor: "pointer" }}>
+          <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+          <span style={{ position: "absolute", inset: 0, borderRadius: 13, transition: ".2s", background: isActive ? "#25d366" : "#d1d5db" }}>
+            <span style={{ position: "absolute", top: 3, left: isActive ? 25 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: ".2s", boxShadow: "0 1px 3px rgba(0,0,0,.2)" }} />
+          </span>
+        </label>
+      </div>
+      <form onSubmit={save} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <label style={lblSt}>API Token {hasToken && <span style={{ color: "#16a34a", fontSize: 11 }}>✓ Kayıtlı</span>}</label>
+          <input type="password" value={apiToken} onChange={e => setApiToken(e.target.value)} placeholder={hasToken ? "Değiştirmek için yeni token girin" : "whatsapp_token_..."}
+            style={inpSt} />
+        </div>
+        <div>
+          <label style={lblSt}>Phone Number ID</label>
+          <input value={phoneNumId} onChange={e => setPhoneNumId(e.target.value)} placeholder="123456789012345" style={inpSt} />
+        </div>
+        <div>
+          <label style={lblSt}>Gönderici Numara</label>
+          <input value={fromNumber} onChange={e => setFromNumber(e.target.value)} placeholder="+905001234567" style={inpSt} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button type="submit" disabled={saving} style={{ padding: "9px 24px", borderRadius: 10, border: "none", background: saving ? "#a78bfa" : "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            {saving ? "Kaydediliyor..." : "Kaydet"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

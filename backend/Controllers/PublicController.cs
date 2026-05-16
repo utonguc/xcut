@@ -79,15 +79,16 @@ public class PublicController : ControllerBase
 
                 return (object)new
                 {
-                    salonId       = w.SalonId,
-                    name          = w.Salon?.Name,
-                    slug          = w.Slug,
-                    city          = w.Salon?.City,
-                    address       = w.Address,
-                    phone         = w.Phone,
-                    heroImageUrl  = w.HeroImageUrl,
-                    primaryColor  = w.PrimaryColor ?? "#7c3aed",
-                    logoUrl       = org?.LogoUrl,
+                    salonId        = w.SalonId,
+                    name           = w.Salon?.Name,
+                    slug           = w.Slug,
+                    city           = w.Salon?.City,
+                    address        = w.Address,
+                    phone          = w.Phone,
+                    heroImageUrl   = w.HeroImageUrl,
+                    primaryColor   = w.PrimaryColor ?? "#7c3aed",
+                    logoUrl        = org?.LogoUrl,
+                    bookingEnabled = w.BookingEnabled,
                     specialties,
                 };
             })

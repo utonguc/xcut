@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
 import { APP_NAME, APP_VERSION, COMPANY_NAME } from "@/lib/version";
 
@@ -76,7 +77,15 @@ export default function LoginPage() {
             </p>
           </div>
           <LoginForm />
-          <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 28, lineHeight: 1.6 }}>
+
+          <div style={{ textAlign: "center", marginTop: 20, padding: "16px 0", borderTop: "1px solid #f1f5f9" }}>
+            <span style={{ fontSize: 14, color: "#64748b" }}>Hesabınız yok mu? </span>
+            <Link href="/demo" style={{ color: "#7c3aed", fontWeight: 700, fontSize: 14, textDecoration: "none" }}>
+              Ücretsiz demo isteyin →
+            </Link>
+          </div>
+
+          <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 4, lineHeight: 1.6 }}>
             Giriş yaparak <a href="#" style={{ color: "#7c3aed", textDecoration: "none" }}>Kullanım Koşulları</a>&apos;nı
             ve <a href="#" style={{ color: "#7c3aed", textDecoration: "none" }}>Gizlilik Politikası</a>&apos;nı kabul etmiş olursunuz.
           </p>

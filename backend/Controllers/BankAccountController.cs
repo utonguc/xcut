@@ -16,11 +16,10 @@ public class BankAccountController : ControllerBase
     private readonly AppDbContext _db;
     public BankAccountController(AppDbContext db) => _db = db;
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
     {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     [HttpGet]

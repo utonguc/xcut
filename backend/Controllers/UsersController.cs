@@ -16,17 +16,19 @@ public class UsersController : ControllerBase
     private readonly AppDbContext _db;
     public UsersController(AppDbContext db) => _db = db;
 
+    // Roles that need a linked Stylist record for attendance / personel tracking
+    private static readonly HashSet<string> StaffRoles = new() { "Stilist", "Calfa" };
+
     private Guid? GetCurrentUserId()
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
         return Guid.TryParse(sub, out var id) ? id : null;
     }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
     {
-        var uid = GetCurrentUserId();
-        if (uid is null) return null;
-        return await _db.Users.Where(u => u.Id == uid.Value).Select(u => (Guid?)u.SalonId).FirstOrDefaultAsync();
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     // Role metadata lives in UserGroupSeeder.ROLE_META
@@ -123,8 +125,8 @@ public class UsersController : ControllerBase
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
-        // Auto-create Stylist record if role = Stilist
-        if (role?.Name == "Stilist")
+        // Auto-create Stylist record for staff roles (Stilist, Calfa)
+        if (StaffRoles.Contains(role?.Name ?? ""))
             await EnsureLinkedStylistAsync(salonId.Value, user.FullName, email, true);
 
         // Auto-assign built-in permission group for this role
@@ -163,12 +165,12 @@ public class UsersController : ControllerBase
         await _db.Entry(user).ReloadAsync();
         var newRoleName = (await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId))?.Name;
 
-        // Sync Stylist record when role changes to/from Stilist
+        // Sync Stylist record when role changes to/from a staff role
         if (oldRoleName != newRoleName)
         {
-            if (newRoleName == "Stilist")
+            if (StaffRoles.Contains(newRoleName ?? ""))
                 await EnsureLinkedStylistAsync(salonId.Value, user.FullName, user.Email, true);
-            else if (oldRoleName == "Stilist")
+            else if (StaffRoles.Contains(oldRoleName ?? ""))
                 await DeactivateLinkedStylistAsync(salonId.Value, user.Email, user.IsActive);
 
             if (newRoleName is not null)
@@ -176,7 +178,7 @@ public class UsersController : ControllerBase
         }
 
         // Sync Stylist active state
-        if (req.IsActive.HasValue && newRoleName == "Stilist")
+        if (req.IsActive.HasValue && StaffRoles.Contains(newRoleName ?? ""))
             await DeactivateLinkedStylistAsync(salonId.Value, user.Email, user.IsActive);
 
         return Ok(new { message = "Kullanıcı güncellendi." });

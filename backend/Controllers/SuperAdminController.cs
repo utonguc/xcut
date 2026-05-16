@@ -344,4 +344,232 @@ public class SuperAdminController : ControllerBase
             totalAppointments = await _db.Appointments.CountAsync(),
         });
     }
+
+    // ── Announcements ─────────────────────────────────────────────────────────
+
+    [HttpGet("announcements")]
+    public async Task<IActionResult> GetAnnouncements()
+    {
+        var list = await _db.Announcements
+            .OrderByDescending(x => x.Priority)
+            .ThenByDescending(x => x.CreatedAtUtc)
+            .ToListAsync();
+
+        return Ok(list.Select(ToAnnouncementDetailResponse));
+    }
+
+    [HttpPost("announcements")]
+    public async Task<IActionResult> CreateAnnouncement([FromBody] XCut.Api.DTOs.CreateAdvancedAnnouncementRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { message = "Başlık zorunlu." });
+
+        var ann = new XCut.Api.Models.Announcement
+        {
+            Id                  = Guid.NewGuid(),
+            Title               = req.Title.Trim(),
+            Body                = req.Body,
+            Type                = req.Type ?? "info",
+            Priority            = req.Priority,
+            IsPublished         = req.IsPublished,
+            StartsAtUtc         = req.StartsAtUtc,
+            ExpiresAtUtc        = req.ExpiresAtUtc,
+            ExcludedSalonIds    = req.ExcludedSalonIds ?? "[]",
+            IsRecurring         = req.IsRecurring,
+            RecurrenceType      = req.RecurrenceType,
+            RecurrenceDays      = req.RecurrenceDays,
+            RecurrenceStartTime = req.RecurrenceStartTime,
+            RecurrenceEndTime   = req.RecurrenceEndTime,
+            CreatedAtUtc        = DateTime.UtcNow,
+            UpdatedAtUtc        = DateTime.UtcNow,
+        };
+        _db.Announcements.Add(ann);
+        await _db.SaveChangesAsync();
+        return Ok(ToAnnouncementDetailResponse(ann));
+    }
+
+    [HttpPut("announcements/{id:guid}")]
+    public async Task<IActionResult> UpdateAnnouncement(Guid id, [FromBody] XCut.Api.DTOs.CreateAdvancedAnnouncementRequest req)
+    {
+        var ann = await _db.Announcements.FindAsync(id);
+        if (ann is null) return NotFound();
+
+        if (string.IsNullOrWhiteSpace(req.Title))
+            return BadRequest(new { message = "Başlık zorunlu." });
+
+        ann.Title               = req.Title.Trim();
+        ann.Body                = req.Body;
+        ann.Type                = req.Type ?? "info";
+        ann.Priority            = req.Priority;
+        ann.IsPublished         = req.IsPublished;
+        ann.StartsAtUtc         = req.StartsAtUtc;
+        ann.ExpiresAtUtc        = req.ExpiresAtUtc;
+        ann.ExcludedSalonIds    = req.ExcludedSalonIds ?? "[]";
+        ann.IsRecurring         = req.IsRecurring;
+        ann.RecurrenceType      = req.RecurrenceType;
+        ann.RecurrenceDays      = req.RecurrenceDays;
+        ann.RecurrenceStartTime = req.RecurrenceStartTime;
+        ann.RecurrenceEndTime   = req.RecurrenceEndTime;
+        ann.UpdatedAtUtc        = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        return Ok(ToAnnouncementDetailResponse(ann));
+    }
+
+    [HttpDelete("announcements/{id:guid}")]
+    public async Task<IActionResult> DeleteAnnouncement(Guid id)
+    {
+        var ann = await _db.Announcements.FindAsync(id);
+        if (ann is null) return NotFound();
+        _db.Announcements.Remove(ann);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpPatch("announcements/{id:guid}/publish")]
+    public async Task<IActionResult> TogglePublishAnnouncement(Guid id)
+    {
+        var ann = await _db.Announcements.FindAsync(id);
+        if (ann is null) return NotFound();
+        ann.IsPublished  = !ann.IsPublished;
+        ann.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { isPublished = ann.IsPublished });
+    }
+
+    private static XCut.Api.DTOs.AnnouncementDetailResponse ToAnnouncementDetailResponse(XCut.Api.Models.Announcement a) =>
+        new(a.Id, a.Title, a.Body, a.Type, a.Priority,
+            a.IsPublished, a.StartsAtUtc, a.ExpiresAtUtc,
+            a.ExcludedSalonIds, a.IsRecurring, a.RecurrenceType,
+            a.RecurrenceDays, a.RecurrenceStartTime, a.RecurrenceEndTime,
+            a.ReadCount, a.CreatedAtUtc, a.UpdatedAtUtc);
+
+    // ── Support (admin side) ──────────────────────────────────────────────────
+
+    [HttpGet("support")]
+    public async Task<IActionResult> GetTickets([FromQuery] string? status)
+    {
+        var query = _db.SupportTickets
+            .Include(x => x.Messages)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(status) && !status.Equals("All", StringComparison.OrdinalIgnoreCase))
+            query = query.Where(x => x.Status == status);
+
+        var tickets = await query
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .ToListAsync();
+
+        return Ok(tickets.Select(ToTicketDetailResponse));
+    }
+
+    [HttpGet("support/{id:guid}")]
+    public async Task<IActionResult> GetTicket(Guid id)
+    {
+        var ticket = await _db.SupportTickets
+            .Include(x => x.Messages)
+            .FirstOrDefaultAsync(x => x.Id == id);
+
+        if (ticket is null) return NotFound();
+        return Ok(ToTicketDetailResponse(ticket));
+    }
+
+    [HttpPost("support/{id:guid}/reply")]
+    public async Task<IActionResult> AdminReply(Guid id, [FromBody] XCut.Api.DTOs.AddMessageRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Body))
+            return BadRequest(new { message = "Mesaj boş olamaz." });
+
+        var ticket = await _db.SupportTickets.FindAsync(id);
+        if (ticket is null) return NotFound();
+
+        var msg = new XCut.Api.Models.SupportMessage
+        {
+            Id           = Guid.NewGuid(),
+            TicketId     = ticket.Id,
+            Body         = req.Body,
+            IsFromAdmin  = true,
+            AuthorName   = "xCut Destek",
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        _db.SupportMessages.Add(msg);
+        ticket.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new XCut.Api.DTOs.SupportMessageDto(
+            msg.Id, msg.Body, msg.IsFromAdmin, msg.AuthorName, msg.CreatedAtUtc));
+    }
+
+    [HttpPatch("support/{id:guid}/status")]
+    public async Task<IActionResult> UpdateTicketStatus(Guid id, [FromBody] XCut.Api.DTOs.UpdateTicketStatusRequest2 req)
+    {
+        var ticket = await _db.SupportTickets.FindAsync(id);
+        if (ticket is null) return NotFound();
+        ticket.Status       = req.Status;
+        ticket.UpdatedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { status = ticket.Status });
+    }
+
+    private static XCut.Api.DTOs.SupportTicketDetailResponse ToTicketDetailResponse(XCut.Api.Models.SupportTicket t) =>
+        new(t.Id, t.SalonId, t.SalonName, t.UserName,
+            t.Subject, t.PageContext, t.Status,
+            t.CreatedAtUtc, t.UpdatedAtUtc,
+            t.Messages.Count,
+            t.Messages.OrderBy(m => m.CreatedAtUtc)
+                .Select(m => new XCut.Api.DTOs.SupportMessageDto(
+                    m.Id, m.Body, m.IsFromAdmin, m.AuthorName, m.CreatedAtUtc))
+                .ToList());
+
+    // ── User Salon Access (çok-lokasyon salon gezintisi) ─────────────────────
+
+    [HttpGet("users/{userId:guid}/salon-accesses")]
+    public async Task<IActionResult> GetUserSalonAccesses(Guid userId)
+    {
+        var accesses = await _db.UserSalonAccesses
+            .Where(x => x.UserId == userId)
+            .Include(x => x.Salon)
+            .OrderBy(x => x.GrantedAtUtc)
+            .Select(x => new { salonId = x.SalonId, salonName = x.Salon!.Name, grantedAtUtc = x.GrantedAtUtc })
+            .ToListAsync();
+        return Ok(accesses);
+    }
+
+    [HttpPost("users/{userId:guid}/salon-accesses")]
+    public async Task<IActionResult> GrantSalonAccess(Guid userId, [FromBody] GrantSalonAccessRequest req)
+    {
+        var user  = await _db.Users.FindAsync(userId);
+        if (user is null) return NotFound(new { message = "Kullanıcı bulunamadı." });
+
+        var salon = await _db.Salons.FindAsync(req.SalonId);
+        if (salon is null) return NotFound(new { message = "Salon bulunamadı." });
+
+        if (req.SalonId == user.SalonId)
+            return BadRequest(new { message = "Kullanıcının kendi salonu zaten mevcut." });
+
+        var existing = await _db.UserSalonAccesses
+            .AnyAsync(x => x.UserId == userId && x.SalonId == req.SalonId);
+        if (existing)
+            return BadRequest(new { message = "Bu erişim zaten tanımlı." });
+
+        _db.UserSalonAccesses.Add(new XCut.Api.Models.UserSalonAccess
+        {
+            UserId  = userId,
+            SalonId = req.SalonId,
+        });
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Erişim verildi.", salonName = salon.Name });
+    }
+
+    [HttpDelete("users/{userId:guid}/salon-accesses/{salonId:guid}")]
+    public async Task<IActionResult> RevokeSalonAccess(Guid userId, Guid salonId)
+    {
+        var access = await _db.UserSalonAccesses
+            .FirstOrDefaultAsync(x => x.UserId == userId && x.SalonId == salonId);
+        if (access is null) return NotFound(new { message = "Erişim bulunamadı." });
+
+        _db.UserSalonAccesses.Remove(access);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
 }

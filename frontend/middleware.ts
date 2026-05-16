@@ -22,18 +22,26 @@ const APP_PATHS = new Set([
   "/salon-bul",
   "/ayarlar",
   "/kasa",
+  "/kiosk",
+  "/sira",
+  "/bekleme",
   "/demo",
   "/superadmin",
   "/site",
   "/portal",
+  "/offline",
   "/_next",
   "/favicon",
   "/api",
 ]);
 
-function noCache(): NextResponse {
+function noCache(allowEmbed = false): NextResponse {
   const res = NextResponse.next();
   res.headers.set("Cache-Control", "private, no-cache, no-store, must-revalidate");
+  if (allowEmbed) {
+    // Allow this page to be embedded in external websites via iframe
+    res.headers.set("Content-Security-Policy", "frame-ancestors *");
+  }
   return res;
 }
 
@@ -41,6 +49,10 @@ export function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const host = req.headers.get("host") ?? "";
   const hostNoPort = host.split(":")[0];
+
+  // Booking pages must be embeddable via iframe on external sites
+  const isBookPath = url.pathname.match(/^\/site\/[^/]+\/book(\/|$|\?|#)/);
+  if (isBookPath) return noCache(true);
 
   // If it's an app hostname → pass through (no CDN caching for app pages)
   if (APP_HOSTNAMES.has(hostNoPort)) return noCache();
@@ -72,5 +84,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw\\.js|workbox-.*\\.js).*)"],
 };

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 type WebsiteData = {
   id?: string;
@@ -73,7 +74,7 @@ export default function WebsitePage() {
   const [data, setData]     = useState<WebsiteData>({ slug: "", primaryColor: "#7c3aed", theme: "elegant", showReviews: true, bookingEnabled: true, showPrices: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
-  const [tab, setTab]         = useState<"content" | "contact" | "design" | "seo" | "domain">("content");
+  const [tab, setTab]         = useState<"content" | "contact" | "design" | "seo" | "domain" | "stylists" | "embed">("content");
   const [toast, setToast]     = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   const [aiOpen,     setAiOpen]     = useState(false);
@@ -159,11 +160,13 @@ export default function WebsitePage() {
   };
 
   const TABS = [
-    { key: "content", label: "📝 İçerik" },
-    { key: "contact", label: "📞 İletişim" },
-    { key: "design",  label: "🎨 Tasarım" },
-    { key: "seo",     label: "🔍 SEO" },
-    { key: "domain",  label: "🌐 Domain" },
+    { key: "content",   label: "📝 İçerik" },
+    { key: "contact",   label: "📞 İletişim" },
+    { key: "stylists",  label: "👤 Stilistler" },
+    { key: "design",    label: "🎨 Tasarım" },
+    { key: "seo",       label: "🔍 SEO" },
+    { key: "domain",    label: "🌐 Domain" },
+    { key: "embed",     label: "🔗 Yerleştir" },
   ] as const;
 
   if (loading) {
@@ -616,6 +619,285 @@ export default function WebsitePage() {
           </Section>
         </>
       )}
+
+      {tab === "stylists" && <WebsiteStylelistsTab />}
+
+      {tab === "embed" && <EmbedTab slug={data.slug} primaryColor={data.primaryColor ?? "#7c3aed"} />}
     </AppShell>
+  );
+}
+
+function WebsiteStylelistsTab() {
+  type StylistRow = { id: string; fullName: string; specialty?: string; photoUrl?: string; isActive: boolean; showOnWebsite: boolean };
+  const [stylists, setStylists] = useState<StylistRow[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await apiFetch("/Stylists?isActive=true");
+    if (r.ok) setStylists(await r.json());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = async (s: StylistRow) => {
+    setSaving(s.id);
+    const updated = { ...s, showOnWebsite: !s.showOnWebsite };
+    const res = await apiFetch(`/Stylists/${s.id}`, {
+      method: "PUT",
+      body: JSON.stringify(updated),
+    });
+    setSaving(null);
+    if (res.ok) {
+      setStylists(prev => prev.map(x => x.id === s.id ? { ...x, showOnWebsite: !x.showOnWebsite } : x));
+      toast.success(`${s.fullName} ${!s.showOnWebsite ? "web sitesine eklendi" : "web sitesinden kaldırıldı"}.`);
+    } else {
+      toast.error("Kayıt hatası.");
+    }
+  };
+
+  const shown  = stylists.filter(s => s.showOnWebsite).length;
+  const hidden = stylists.filter(s => !s.showOnWebsite).length;
+
+  return (
+    <div style={{ background: "var(--surface, #fff)", borderRadius: 16, border: "1px solid var(--border, #eaecf0)", padding: "24px 28px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "var(--text, #0f172a)", marginBottom: 4 }}>Web Sitesinde Gösterilecek Stilistler</div>
+          <div style={{ fontSize: 13, color: "#64748b" }}>
+            Aktif tüm stilistler puantaj listesinde yer alır. Sadece burada işaretledikleriniz <strong>halka açık web sitesinde</strong> görünür.
+          </div>
+        </div>
+        {!loading && (
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999, background: "#f0fdf4", color: "#059669", border: "1px solid #bbf7d0" }}>
+              {shown} web'de
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999, background: "#f8fafc", color: "#64748b", border: "1px solid #e2e8f0" }}>
+              {hidden} gizli
+            </span>
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40, color: "#94a3b8" }}>Yükleniyor...</div>
+      ) : stylists.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 40, color: "#94a3b8" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>👤</div>
+          <div>Henüz stilist eklenmemiş.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {stylists.map(s => {
+            const isSaving = saving === s.id;
+            return (
+              <div key={s.id} style={{
+                display: "flex", alignItems: "center", gap: 14,
+                padding: "14px 16px", borderRadius: 12,
+                border: `1px solid ${s.showOnWebsite ? "#e9d5ff" : "#eaecf0"}`,
+                background: s.showOnWebsite ? "#faf5ff" : "#f8fafc",
+                transition: "all 0.15s",
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%",
+                  background: s.showOnWebsite ? "#7c3aed" : "#e2e8f0",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0, fontWeight: 800, fontSize: 14,
+                  color: s.showOnWebsite ? "#fff" : "#94a3b8",
+                }}>
+                  {s.fullName.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text, #101828)" }}>{s.fullName}</div>
+                  {s.specialty && <div style={{ fontSize: 12, color: "#64748b", marginTop: 1 }}>{s.specialty}</div>}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999,
+                    background: s.showOnWebsite ? "#ede9fe" : "#f1f5f9",
+                    color: s.showOnWebsite ? "#7c3aed" : "#64748b",
+                  }}>
+                    {s.showOnWebsite ? "Web'de görünür" : "Gizli"}
+                  </span>
+                  <button
+                    onClick={() => toggle(s)}
+                    disabled={isSaving}
+                    style={{
+                      padding: "6px 14px", borderRadius: 8, border: "none", fontWeight: 700, cursor: isSaving ? "not-allowed" : "pointer", fontSize: 12,
+                      background: s.showOnWebsite ? "#fef3f2" : "#7c3aed",
+                      color: s.showOnWebsite ? "#b42318" : "#fff",
+                      opacity: isSaving ? 0.6 : 1, transition: "all 0.15s",
+                    }}
+                  >
+                    {isSaving ? "..." : s.showOnWebsite ? "Gizle" : "Göster"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ marginTop: 20, padding: "12px 16px", background: "#eff8ff", border: "1px solid #bae6fd", borderRadius: 10, fontSize: 12, color: "#0369a1" }}>
+        Bu ayar sadece halka açık web sitesini etkiler. Stilistler Personel modülünde her zaman görünür.
+      </div>
+    </div>
+  );
+}
+
+// ── Embed Tab ─────────────────────────────────────────────────────────────────
+
+const BASE_URL = "https://xcut.xshield.com.tr";
+
+function EmbedTab({ slug, primaryColor }: { slug: string; primaryColor: string }) {
+  const { toast } = useToast();
+  const [copied, setCopied] = useState<string | null>(null);
+  const [btnText, setBtnText] = useState("📅 Randevu Al");
+  const [btnColor, setBtnColor] = useState(primaryColor);
+
+  const bookUrl = slug ? `${BASE_URL}/site/${slug}/book` : "";
+
+  const iframeCode = slug ? `<iframe
+  src="${bookUrl}"
+  width="100%"
+  height="720"
+  style="border:none; border-radius:12px; box-shadow:0 4px 24px rgba(0,0,0,0.08);"
+  allow="payment"
+  title="Online Randevu"
+></iframe>` : "";
+
+  const widgetCode = slug ? `<!-- xCut Randevu Widget -->
+<script>
+(function(){
+  var PRIMARY='${btnColor}';
+  var BTN_TEXT='${btnText}';
+  var BOOK_URL='${bookUrl}';
+
+  var btn=document.createElement('button');
+  btn.innerHTML=BTN_TEXT;
+  btn.style.cssText='position:fixed;bottom:24px;right:24px;padding:14px 24px;background:'+PRIMARY+';color:#fff;border:none;border-radius:50px;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(0,0,0,0.25);z-index:9999;font-family:system-ui,sans-serif;transition:transform .15s;';
+  btn.onmouseenter=function(){btn.style.transform='scale(1.05)';};
+  btn.onmouseleave=function(){btn.style.transform='';};
+  document.body.appendChild(btn);
+
+  var overlay=document.createElement('div');
+  overlay.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;align-items:center;justify-content:center;padding:16px;';
+  var box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:16px;overflow:hidden;width:100%;max-width:480px;max-height:90vh;position:relative;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+  var close=document.createElement('button');
+  close.innerHTML='&times;';
+  close.style.cssText='position:absolute;top:10px;right:12px;background:rgba(0,0,0,0.45);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1;z-index:1;';
+  var iframe=document.createElement('iframe');
+  iframe.src=BOOK_URL+'?embed=1';
+  iframe.style.cssText='width:100%;height:680px;border:none;display:block;';
+  iframe.allow='payment';
+  box.appendChild(close);box.appendChild(iframe);overlay.appendChild(box);document.body.appendChild(overlay);
+
+  function open(){overlay.style.display='flex';}
+  function close_fn(){overlay.style.display='none';}
+  btn.onclick=open;close.onclick=close_fn;
+  overlay.onclick=function(e){if(e.target===overlay)close_fn();};
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')close_fn();});
+})();
+</script>` : "";
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      toast.success("Kopyalandı!");
+      setTimeout(() => setCopied(null), 2000);
+    });
+  };
+
+  const codeStyle: React.CSSProperties = {
+    display: "block", width: "100%", padding: "14px 16px",
+    background: "#0f172a", color: "#e2e8f0", borderRadius: 10,
+    fontSize: 12, fontFamily: "monospace", lineHeight: 1.6,
+    whiteSpace: "pre-wrap", wordBreak: "break-all",
+    border: "none", resize: "vertical", minHeight: 120,
+  };
+
+  if (!slug) return (
+    <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>
+      Önce "İçerik" sekmesinde salon slug'ınızı kaydedin.
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Info */}
+      <div style={{ padding: "14px 18px", background: "#eff8ff", border: "1px solid #bae6fd", borderRadius: 12, fontSize: 13, color: "#0369a1" }}>
+        <strong>Randevu modülünü kendi web sitenize yerleştirin.</strong><br />
+        Ajansınıza veya geliştiricinize aşağıdaki kodlardan birini verin — xCut web sitesi kullanmasanız da çalışır.
+      </div>
+
+      {/* Option 1: iframe */}
+      <div style={{ background: "var(--surface, #fff)", border: "1px solid var(--border, #eaecf0)", borderRadius: 14, padding: "20px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>Seçenek 1 — Satır İçi iframe</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>Randevu formunu sayfanın içine gömer. Sayfadan ayrılmaz.</div>
+          </div>
+          <button onClick={() => copy(iframeCode, "iframe")}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e2e8f0", background: copied === "iframe" ? "#dcfce7" : "#fff", color: copied === "iframe" ? "#166534" : "#374151", fontWeight: 700, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>
+            {copied === "iframe" ? "✓ Kopyalandı" : "📋 Kopyala"}
+          </button>
+        </div>
+        <textarea readOnly value={iframeCode} style={codeStyle} rows={6} onClick={e => (e.target as HTMLTextAreaElement).select()} />
+      </div>
+
+      {/* Option 2: Floating widget */}
+      <div style={{ background: "var(--surface, #fff)", border: "1px solid var(--border, #eaecf0)", borderRadius: 14, padding: "20px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>Seçenek 2 — Yüzen Buton Widget</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>Sayfanın sağ alt köşesinde randevu butonu açar. Modal popup olarak gösterir.</div>
+          </div>
+          <button onClick={() => copy(widgetCode, "widget")}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #e2e8f0", background: copied === "widget" ? "#dcfce7" : "#fff", color: copied === "widget" ? "#166534" : "#374151", fontWeight: 700, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>
+            {copied === "widget" ? "✓ Kopyalandı" : "📋 Kopyala"}
+          </button>
+        </div>
+
+        {/* Customize widget */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4, textTransform: "uppercase" }}>Buton Metni</label>
+            <input value={btnText} onChange={e => setBtnText(e.target.value)}
+              style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4, textTransform: "uppercase" }}>Buton Rengi</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="color" value={btnColor} onChange={e => setBtnColor(e.target.value)}
+                style={{ width: 40, height: 36, borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer", padding: 2 }} />
+              <input value={btnColor} onChange={e => setBtnColor(e.target.value)}
+                style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "monospace" }} />
+            </div>
+          </div>
+        </div>
+
+        <textarea readOnly value={widgetCode} style={codeStyle} rows={8} onClick={e => (e.target as HTMLTextAreaElement).select()} />
+      </div>
+
+      {/* Direct link */}
+      <div style={{ background: "var(--surface, #fff)", border: "1px solid var(--border, #eaecf0)", borderRadius: 14, padding: "20px 24px" }}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Seçenek 3 — Direkt Link</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>Butona href olarak verin — kendi sayfanızdan açılır.</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <code style={{ flex: 1, padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, wordBreak: "break-all" }}>{bookUrl}</code>
+          <button onClick={() => copy(bookUrl, "link")}
+            style={{ padding: "9px 16px", borderRadius: 8, border: "1px solid #e2e8f0", background: copied === "link" ? "#dcfce7" : "#fff", color: copied === "link" ? "#166534" : "#374151", fontWeight: 700, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>
+            {copied === "link" ? "✓" : "📋 Kopyala"}
+          </button>
+        </div>
+      </div>
+
+    </div>
   );
 }

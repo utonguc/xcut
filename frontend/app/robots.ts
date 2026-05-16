@@ -10,6 +10,7 @@ export default function robots(): MetadataRoute.Robots {
           "/dashboard", "/appointments", "/customers", "/finance", "/kasa",
           "/raporlar", "/services", "/stylists", "/stock", "/takvim", "/tasks",
           "/website", "/whatsapp", "/ayarlar", "/superadmin",
+          "/site/*/book",
         ],
       },
     ],

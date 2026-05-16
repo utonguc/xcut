@@ -27,7 +27,10 @@ public class DashboardController : ControllerBase
             .FirstOrDefaultAsync(x => x.Id == userId);
         if (user is null) return null;
 
-        return (user.Id, user.SalonId, user.Role?.Name);
+        var salonClaim = User.FindFirstValue("salonId");
+        var salonId    = Guid.TryParse(salonClaim, out var sid) ? sid : user.SalonId;
+
+        return (user.Id, salonId, user.Role?.Name);
     }
 
     // GET api/dashboard/widgets

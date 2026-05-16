@@ -3,6 +3,7 @@ using System.Security.Claims;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
+using XCut.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,18 +17,25 @@ public class StylistsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly IAuditService _audit;
 
-    public StylistsController(AppDbContext db, IWebHostEnvironment env)
+    public StylistsController(AppDbContext db, IWebHostEnvironment env, IAuditService audit)
     {
-        _db  = db;
-        _env = env;
+        _db    = db;
+        _env   = env;
+        _audit = audit;
     }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
+    {
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
+    }
+
+    private Guid? GetUserId()
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        return Guid.TryParse(sub, out var id) ? id : null;
     }
 
     [HttpGet]
@@ -96,6 +104,7 @@ public class StylistsController : ControllerBase
 
         _db.Stylists.Add(stylist);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Stylist", stylist.Id.ToString(), "Create", $"Stilist oluşturuldu: {stylist.FullName}");
         return Ok(stylist.Id);
     }
 
@@ -121,6 +130,7 @@ public class StylistsController : ControllerBase
         s.Specializations = req.Specializations;
         s.ExperienceYears = req.ExperienceYears;
         s.IsActive        = req.IsActive;
+        s.ShowOnWebsite   = req.ShowOnWebsite;
         s.PayType         = req.PayType;
         s.FixedSalary     = req.FixedSalary;
         s.CommissionRate  = req.CommissionRate;
@@ -130,6 +140,7 @@ public class StylistsController : ControllerBase
         if (s.ApproverId.HasValue)
             approverName2 = await _db.Users.Where(u => u.Id == s.ApproverId.Value).Select(u => u.FullName).FirstOrDefaultAsync();
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Stylist", id.ToString(), "Update", $"Stilist güncellendi: {s.FullName}");
         return Ok(MapWithApprover(s, s.ApproverId.HasValue && approverName2 != null
             ? new Dictionary<Guid, string> { [s.ApproverId.Value] = approverName2 }
             : new()));
@@ -147,6 +158,7 @@ public class StylistsController : ControllerBase
 
         s.IsActive = false;
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Stylist", id.ToString(), "Delete", $"Stilist silindi: {s.FullName}");
         return NoContent();
     }
 
@@ -179,12 +191,49 @@ public class StylistsController : ControllerBase
         return Ok(new { photoUrl = s.PhotoUrl });
     }
 
+    [HttpGet("{id:guid}/services")]
+    public async Task<IActionResult> GetStylistServices(Guid id)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var serviceIds = await _db.StylistServices
+            .Where(x => x.StylistId == id)
+            .Select(x => x.ServiceId)
+            .ToListAsync();
+
+        return Ok(serviceIds);
+    }
+
+    [Authorize(Roles = "SuperAdmin,SalonYonetici")]
+    [HttpPut("{id:guid}/services")]
+    public async Task<IActionResult> SetStylistServices(Guid id, [FromBody] SetStylistServicesRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var stylist = await _db.Stylists.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
+        if (stylist is null) return NotFound();
+
+        var existing = await _db.StylistServices.Where(x => x.StylistId == id).ToListAsync();
+        _db.StylistServices.RemoveRange(existing);
+
+        if (req.ServiceIds?.Length > 0)
+        {
+            var entries = req.ServiceIds.Select(sid => new StylistService { StylistId = id, ServiceId = sid }).ToList();
+            _db.StylistServices.AddRange(entries);
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { updated = req.ServiceIds?.Length ?? 0 });
+    }
+
     private static StylistResponse MapWithApprover(Stylist s, Dictionary<Guid, string> approvers) => new()
     {
         Id = s.Id, FullName = s.FullName, Specialty = s.Specialty,
         Phone = s.Phone, Email = s.Email, PhotoUrl = s.PhotoUrl,
         Biography = s.Biography, Specializations = s.Specializations,
-        ExperienceYears = s.ExperienceYears, IsActive = s.IsActive,
+        ExperienceYears = s.ExperienceYears, IsActive = s.IsActive, ShowOnWebsite = s.ShowOnWebsite,
         PayType = s.PayType, FixedSalary = s.FixedSalary, CommissionRate = s.CommissionRate,
         CreatedAtUtc = s.CreatedAtUtc,
         ApproverId   = s.ApproverId,

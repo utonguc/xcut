@@ -77,6 +77,42 @@ public class AuditLogController : ControllerBase
         });
     }
 
+    [HttpGet("stats")]
+    public async Task<IActionResult> Stats()
+    {
+        var salonId = GetSalonId();
+        if (salonId is null) return Unauthorized();
+
+        var todayStart = DateTime.UtcNow.Date;
+        var weekStart  = DateTime.UtcNow.AddDays(-7);
+
+        var all = await _db.AuditLogs
+            .Where(l => l.SalonId == salonId)
+            .Select(l => new { l.Action, l.EntityType, l.CreatedAtUtc })
+            .ToListAsync();
+
+        var actionCounts = all
+            .GroupBy(l => l.Action)
+            .Select(g => new { action = g.Key, count = g.Count() })
+            .OrderByDescending(x => x.count)
+            .ToList();
+
+        var topEntities = all
+            .GroupBy(l => l.EntityType)
+            .Select(g => new { entity = g.Key, count = g.Count() })
+            .OrderByDescending(x => x.count)
+            .Take(5)
+            .ToList();
+
+        return Ok(new {
+            total      = all.Count,
+            todayCount = all.Count(l => l.CreatedAtUtc >= todayStart),
+            weekCount  = all.Count(l => l.CreatedAtUtc >= weekStart),
+            actionCounts,
+            topEntities,
+        });
+    }
+
     [HttpGet("entity-types")]
     public async Task<IActionResult> EntityTypes()
     {

@@ -2,6 +2,16 @@ namespace XCut.Api.Models;
 
 // ── User / Auth ───────────────────────────────────────────────────────────────
 
+public class PasswordResetToken
+{
+    public Guid      Id           { get; set; } = Guid.NewGuid();
+    public Guid      UserId       { get; set; }
+    public string    Token        { get; set; } = string.Empty;
+    public DateTime  ExpiresAtUtc { get; set; }
+    public DateTime? UsedAtUtc    { get; set; }
+    public DateTime  CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
 public class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -43,11 +53,13 @@ public class Invoice
     public Guid   SalonId  { get; set; }
     public Salon? Salon    { get; set; }
 
-    public Guid      CustomerId { get; set; }
+    public Guid?     CustomerId { get; set; }
     public Customer? Customer   { get; set; }
 
     public Guid?    StylistId { get; set; }
     public Stylist? Stylist   { get; set; }
+
+    public Guid?   PosTransactionId { get; set; }
 
     public string InvoiceNo   { get; set; } = string.Empty;
     public DateTime IssuedAtUtc { get; set; } = DateTime.UtcNow;
@@ -148,13 +160,15 @@ public class StockMovement
 
 public class OrganizationSetting
 {
-    public Guid    Id               { get; set; } = Guid.NewGuid();
-    public Guid    SalonId          { get; set; }
-    public string  CompanyName      { get; set; } = "Salon";
-    public string  ApplicationTitle { get; set; } = "xCut";
-    public string? LogoUrl          { get; set; }
-    public string  PrimaryColor     { get; set; } = "#1d4ed8";
-    public DateTime UpdatedAtUtc    { get; set; } = DateTime.UtcNow;
+    public Guid    Id                 { get; set; } = Guid.NewGuid();
+    public Guid    SalonId            { get; set; }
+    public string  CompanyName        { get; set; } = "Salon";
+    public string  ApplicationTitle   { get; set; } = "xCut";
+    public string? LogoUrl            { get; set; }
+    public string  PrimaryColor       { get; set; } = "#1d4ed8";
+    public bool    MfaEnabled         { get; set; } = false;
+    public string? NotificationConfig { get; set; }
+    public DateTime UpdatedAtUtc      { get; set; } = DateTime.UtcNow;
 }
 
 // ── Dashboard Widget ──────────────────────────────────────────────────────────
@@ -444,15 +458,32 @@ public class SupportTicket
 {
     public Guid   Id         { get; set; } = Guid.NewGuid();
     public Guid   SalonId    { get; set; }
+    public Guid   UserId     { get; set; }
+    public string UserName   { get; set; } = string.Empty;
     public string SalonName  { get; set; } = string.Empty;
     public string Subject    { get; set; } = string.Empty;
-    public string Body       { get; set; } = string.Empty;
-    public string? PageUrl   { get; set; }
+    public string? PageContext { get; set; }
     public string  Status    { get; set; } = "Open"; // Open | InProgress | Resolved | Closed
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    public ICollection<SupportMessage> Messages { get; set; } = new List<SupportMessage>();
+
+    // Legacy — kept for backward compat, not used in new flow
+    public string Body       { get; set; } = string.Empty;
+    public string? PageUrl   { get; set; }
     public ICollection<SupportTicketReply> Replies { get; set; } = new List<SupportTicketReply>();
+}
+
+public class SupportMessage
+{
+    public Guid    Id          { get; set; } = Guid.NewGuid();
+    public Guid    TicketId    { get; set; }
+    public SupportTicket? Ticket { get; set; }
+    public string  Body        { get; set; } = string.Empty;
+    public bool    IsFromAdmin { get; set; } = false;
+    public string  AuthorName  { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
 public class SupportTicketReply
@@ -464,6 +495,29 @@ public class SupportTicketReply
     public bool    IsFromAdmin { get; set; } = false;
     public string  AuthorName  { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+// ── Announcements (advanced, with recurrence & targeting) ────────────────────
+
+public class Announcement
+{
+    public Guid    Id           { get; set; } = Guid.NewGuid();
+    public string  Title        { get; set; } = string.Empty;
+    public string? Body         { get; set; }
+    public string  Type         { get; set; } = "info"; // info | success | warning | error | maintenance
+    public int     Priority     { get; set; } = 0;
+    public bool    IsPublished  { get; set; } = false;
+    public DateTime? StartsAtUtc  { get; set; }   // null = immediately
+    public DateTime? ExpiresAtUtc { get; set; }   // null = no expiry
+    public string  ExcludedSalonIds { get; set; } = "[]"; // JSON array of salon id strings
+    public bool    IsRecurring  { get; set; } = false;
+    public string? RecurrenceType  { get; set; }  // daily | weekly | monthly
+    public string? RecurrenceDays  { get; set; }  // for weekly: "1,3,5" (0=Sun..6=Sat)
+    public string? RecurrenceStartTime { get; set; } // "09:00"
+    public string? RecurrenceEndTime   { get; set; } // "18:00"
+    public int     ReadCount    { get; set; } = 0;
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
 }
 
 // ── Asset / Demirbaş ─────────────────────────────────────────────────────────
@@ -588,8 +642,10 @@ public class ScheduledReport
     public Guid    SalonId         { get; set; }
     public string  Name            { get; set; } = string.Empty;
     public string  ReportType      { get; set; } = string.Empty;
-    public string  Frequency       { get; set; } = "weekly"; // daily | weekly | monthly
+    public string  Frequency       { get; set; } = "weekly"; // once | daily | weekly | monthly
+    public int     SendHour        { get; set; } = 8;         // UTC hour to send (0-23)
     public string? RecipientEmails { get; set; }
+    public string? FiltersJson     { get; set; } // {"period":"month"}
     public bool    IsActive        { get; set; } = true;
     public DateTime? LastSentAtUtc { get; set; }
     public DateTime? NextRunAtUtc  { get; set; }
@@ -681,4 +737,89 @@ public class PersonelLeaveRequest
 
     public Stylist? Stylist { get; set; }
     public Salon?   Salon   { get; set; }
+}
+
+// ── Leave Balance ─────────────────────────────────────────────────────────────
+
+public class LeaveBalance
+{
+    public Guid     Id           { get; set; } = Guid.NewGuid();
+    public Guid     SalonId      { get; set; }
+    public Guid     StylistId    { get; set; }
+    public Stylist? Stylist      { get; set; }
+    public int      Year         { get; set; }
+    public int      EntitledDays { get; set; } = 14;
+    public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+// ── WaitlistEntry ─────────────────────────────────────────────────────────────
+
+public class WaitlistEntry
+{
+    public Guid      Id            { get; set; } = Guid.NewGuid();
+    public Guid      SalonId       { get; set; }
+    public Salon?    Salon         { get; set; }
+    public Guid?     CustomerId    { get; set; }  // null until approved → customer created
+    public Customer? Customer      { get; set; }
+    public Guid?     StylistId     { get; set; }
+    public Stylist?  Stylist       { get; set; }
+    public string?   ServiceName   { get; set; }
+    public DateTime? PreferredDate { get; set; }
+    public string    Notes         { get; set; } = "";
+    public string    Status        { get; set; } = "Waiting";
+    // Raw fields for public/anonymous sign-ups (before a Customer record exists)
+    public string    CustomerName      { get; set; } = "";
+    public string?   CustomerFirstName { get; set; }
+    public string?   CustomerLastName  { get; set; }
+    public string?   CustomerPhone     { get; set; }
+    public string?   CustomerEmail     { get; set; }
+    public string    Source            { get; set; } = "panel"; // panel | public
+    // Time preference: null = all-day flexible, otherwise e.g. "09:00"
+    public string?   PreferredTimeFrom { get; set; }
+    public string?   PreferredTimeTo   { get; set; }
+    public DateTime  CreatedAtUtc      { get; set; } = DateTime.UtcNow;
+}
+
+// ── CustomerPhoto ─────────────────────────────────────────────────────────────
+
+public class CustomerPhoto
+{
+    public Guid      Id            { get; set; } = Guid.NewGuid();
+    public Guid      SalonId       { get; set; }
+    public Guid      CustomerId    { get; set; }
+    public Customer? Customer      { get; set; }
+    public Guid?     AppointmentId { get; set; }
+    public string    PhotoUrl      { get; set; } = "";
+    public string    Type          { get; set; } = "After";
+    public string?   ServiceName   { get; set; }
+    public string?   Notes         { get; set; }
+    public DateTime  CreatedAtUtc  { get; set; } = DateTime.UtcNow;
+}
+
+// ── UserSalonAccess ───────────────────────────────────────────────────────────
+
+public class UserSalonAccess
+{
+    public Guid   Id            { get; set; } = Guid.NewGuid();
+    public Guid   UserId        { get; set; }
+    public User?  User          { get; set; }
+    public Guid   SalonId       { get; set; }
+    public Salon? Salon         { get; set; }
+    public DateTime GrantedAtUtc { get; set; } = DateTime.UtcNow;
+}
+
+// ── Google Calendar Integration ───────────────────────────────────────────────
+
+public class GoogleCalendarToken
+{
+    public Guid    Id              { get; set; } = Guid.NewGuid();
+    public Guid    SalonId         { get; set; }
+    public Guid?   UserId          { get; set; }
+    public string  AccessToken     { get; set; } = string.Empty;
+    public string? RefreshToken    { get; set; }
+    public DateTime ExpiresAtUtc   { get; set; }
+    public string  CalendarId      { get; set; } = "primary";
+    public string? CalendarName    { get; set; }
+    public string? ConnectedEmail  { get; set; }
+    public DateTime ConnectedAtUtc { get; set; } = DateTime.UtcNow;
 }

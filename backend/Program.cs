@@ -1,8 +1,10 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using XCut.Api.Data;
 using XCut.Api.Models;
 using XCut.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -44,6 +46,7 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddSingleton<XCut.Api.Services.KioskEventBroadcaster>();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection("Smtp"));
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddHostedService<ReportEmailWorker>();
@@ -51,6 +54,9 @@ builder.Services.AddHostedService<AppointmentReminderWorker>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IGoogleCalendarService, GoogleCalendarService>();
+builder.Services.AddSingleton<XCut.Api.Services.InMemorySessionStore>();
+builder.Services.AddSingleton<XCut.Api.Services.MfaService>();
 
 var jwtKey      = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT key missing.");
 var jwtIssuer   = builder.Configuration["Jwt:Issuer"];
@@ -74,15 +80,57 @@ builder.Services
     });
 
 builder.Services.AddAuthorization();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy<string>("login", httpCtx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpCtx.Request.Headers["X-Real-IP"].FirstOrDefault()
+                          ?? httpCtx.Connection.RemoteIpAddress?.ToString()
+                          ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit          = 5,
+                Window               = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit           = 0,
+            }));
+
+    options.AddPolicy<string>("mfa", httpCtx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpCtx.Request.Headers["X-Real-IP"].FirstOrDefault()
+                          ?? httpCtx.Connection.RemoteIpAddress?.ToString()
+                          ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit          = 10,
+                Window               = TimeSpan.FromMinutes(5),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit           = 0,
+            }));
+
+    options.RejectionStatusCode = 429;
+    options.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.StatusCode = 429;
+        await ctx.HttpContext.Response.WriteAsJsonAsync(
+            new { message = "Çok fazla deneme yapıldı. Lütfen bir dakika bekleyin." }, ct);
+    };
+});
+
 builder.Services.AddCors(options =>
     options.AddPolicy("frontend", policy =>
-        policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin()));
+        policy
+            .WithOrigins("https://xcut.xshield.com.tr", "http://localhost:3000", "https://localhost:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod()));
 
 var app = builder.Build();
 
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -30,7 +30,6 @@ type ScheduleDay = {
   isWorking: boolean;
   startTime: string;
   endTime: string;
-  slotMinutes: number;
 };
 
 type Leave = {
@@ -39,6 +38,8 @@ type Leave = {
   endDate: string;
   reason?: string;
 };
+
+type SalonService = { id: string; name: string; categoryName?: string; category?: string };
 
 /* ── Stylist Card ───────────────────────────────────────────────── */
 function StylistCard({ stylist, onEdit, onSchedule, canEdit }: { stylist: Stylist; onEdit: () => void; onSchedule: () => void; canEdit: boolean }) {
@@ -88,6 +89,7 @@ export default function StylistsPage() {
   const [editStylist, setEditStylist] = useState<Stylist | null>(null);
   const [schedModal,  setSchedModal]  = useState<Stylist | null>(null);
   const [filterActive, setFilterActive] = useState("true");
+  const [searchText,   setSearchText]   = useState("");
   const [canEdit,     setCanEdit]     = useState(false);
 
   const load = useCallback(async () => {
@@ -120,34 +122,56 @@ export default function StylistsPage() {
             </button>
           ))}
         </div>
+        <input
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          placeholder="Ad, uzmanlık veya şube ara..."
+          className="inp"
+          style={{ width: 220, minHeight: 40 }}
+        />
       </div>
 
-      {loading ? (
-        <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>
-          <div style={{ width: 32, height: 32, border: "3px solid #ede9fe", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
-          Yükleniyor...
-        </div>
-      ) : stylists.length === 0 ? (
-        <div style={{ padding: 60, textAlign: "center" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>✂️</div>
-          <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>Stilist bulunamadı</div>
-          <div style={{ fontSize: 14, color: "#64748b", maxWidth: 340, margin: "0 auto" }}>
-            Stilist eklemek için <strong>Ayarlar → Kullanıcılar</strong> bölümünden "Stilist" rolüyle bir kullanıcı oluşturun.
+      {(() => {
+        const filtered = searchText.trim()
+          ? stylists.filter(s => {
+              const q = searchText.toLowerCase();
+              return s.fullName.toLowerCase().includes(q)
+                || (s.specialty ?? "").toLowerCase().includes(q)
+                || (s.branch ?? "").toLowerCase().includes(q);
+            })
+          : stylists;
+
+        return loading ? (
+          <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>
+            <div style={{ width: 32, height: 32, border: "3px solid #ede9fe", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
+            Yükleniyor...
           </div>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-          {stylists.map(s => (
-            <StylistCard
-              key={s.id}
-              stylist={s}
-              canEdit={canEdit}
-              onEdit={() => { setEditStylist(s); setShowModal(true); }}
-              onSchedule={() => setSchedModal(s)}
-            />
-          ))}
-        </div>
-      )}
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 60, textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>✂️</div>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8 }}>
+              {searchText ? `"${searchText}" için stilist bulunamadı` : "Stilist bulunamadı"}
+            </div>
+            {!searchText && (
+              <div style={{ fontSize: 14, color: "#64748b", maxWidth: 340, margin: "0 auto" }}>
+                Stilist eklemek için <strong>Ayarlar → Kullanıcılar</strong> bölümünden "Stilist" rolüyle bir kullanıcı oluşturun.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+            {filtered.map(s => (
+              <StylistCard
+                key={s.id}
+                stylist={s}
+                canEdit={canEdit}
+                onEdit={() => { setEditStylist(s); setShowModal(true); }}
+                onSchedule={() => setSchedModal(s)}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {showModal && (
         <StylistModal
@@ -305,21 +329,28 @@ function ScheduleModal({ stylist, onClose }: { stylist: Stylist; onClose: () => 
   const [schedule, setSchedule] = useState<ScheduleDay[]>(
     Array.from({ length: 7 }, (_, i) => ({
       dayOfWeek: i, isWorking: i >= 1 && i <= 6,
-      startTime: "09:00", endTime: "18:00", slotMinutes: 30,
+      startTime: "09:00", endTime: "18:00",
     }))
   );
-  const [leaves,   setLeaves]   = useState<Leave[]>([]);
-  const [saving,   setSaving]   = useState(false);
-  const [leaveForm, setLeaveForm] = useState({ startDate: "", endDate: "", reason: "" });
+  const [leaves,      setLeaves]      = useState<Leave[]>([]);
+  const [saving,      setSaving]      = useState(false);
+  const [leaveForm,   setLeaveForm]   = useState({ startDate: "", endDate: "", reason: "" });
+  const [allServices, setAllServices] = useState<SalonService[]>([]);
+  const [selSvcIds,   setSelSvcIds]   = useState<string[]>([]);
 
   useEffect(() => {
     apiFetch(`/StylistSchedule/${stylist.id}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setSchedule(d); });
     apiFetch(`/StylistSchedule/${stylist.id}/leaves`).then(r => r.ok ? r.json() : []).then(setLeaves);
+    apiFetch("/Services?activeOnly=true").then(r => r.ok ? r.json() : []).then(setAllServices);
+    apiFetch(`/Stylists/${stylist.id}/services`).then(r => r.ok ? r.json() : []).then((ids: string[]) => setSelSvcIds(ids));
   }, [stylist.id]);
 
   const save = async () => {
     setSaving(true);
-    await apiFetch(`/StylistSchedule/${stylist.id}`, { method: "PUT", body: JSON.stringify(schedule) });
+    await Promise.all([
+      apiFetch(`/StylistSchedule/${stylist.id}`, { method: "PUT", body: JSON.stringify(schedule) }),
+      apiFetch(`/Stylists/${stylist.id}/services`, { method: "PUT", body: JSON.stringify({ serviceIds: selSvcIds }) }),
+    ]);
     setSaving(false);
     onClose();
   };
@@ -362,13 +393,64 @@ function ScheduleModal({ stylist, onClose }: { stylist: Stylist; onClose: () => 
                     <input type="time" value={day.startTime} onChange={e => setSchedule(prev => prev.map((d, j) => j === i ? { ...d, startTime: e.target.value } : d))} style={s} />
                     <span style={{ fontSize: 12, color: "#94a3b8" }}>–</span>
                     <input type="time" value={day.endTime} onChange={e => setSchedule(prev => prev.map((d, j) => j === i ? { ...d, endTime: e.target.value } : d))} style={s} />
-                    <select value={day.slotMinutes} onChange={e => setSchedule(prev => prev.map((d, j) => j === i ? { ...d, slotMinutes: Number(e.target.value) } : d))} style={s}>
-                      {[15,20,30,45,60].map(m => <option key={m} value={m}>{m} dk</option>)}
-                    </select>
                   </>
                 )}
               </div>
             ))}
+          </div>
+
+          {/* Supported Services */}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Desteklediği Hizmetler</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>
+                Boş bırakılırsa tüm hizmetler gösterilir. Seçim yapılırsa yalnızca seçili hizmetler randevu sayfasında görünür.
+              </div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                <button onClick={() => setSelSvcIds(allServices.map(s => s.id))}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d0d5dd", background: "#f8fafc", fontSize: 12, cursor: "pointer" }}>
+                  Tümünü Seç
+                </button>
+                <button onClick={() => setSelSvcIds([])}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #d0d5dd", background: "#f8fafc", fontSize: 12, cursor: "pointer" }}>
+                  Temizle
+                </button>
+              </div>
+              <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border,#eaecf0)", borderRadius: 10, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {(() => {
+                  const grouped: Record<string, SalonService[]> = {};
+                  allServices.forEach(s => {
+                    const cat = s.categoryName ?? s.category ?? "Diğer";
+                    if (!grouped[cat]) grouped[cat] = [];
+                    grouped[cat].push(s);
+                  });
+                  return Object.entries(grouped).map(([cat, svcs]) => (
+                    <div key={cat}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, marginTop: 4 }}>{cat}</div>
+                      {svcs.map(svc => {
+                        const checked = selSvcIds.includes(svc.id);
+                        return (
+                          <label key={svc.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "3px 0" }}>
+                            <input type="checkbox" checked={checked} onChange={() =>
+                              setSelSvcIds(prev => checked ? prev.filter(id => id !== svc.id) : [...prev, svc.id])
+                            } style={{ accentColor: "#7c3aed", width: 15, height: 15 }} />
+                            <span style={{ fontSize: 13 }}>{svc.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ));
+                })()}
+              </div>
+              {selSvcIds.length > 0 && (
+                <div style={{ fontSize: 11, color: "#7c3aed", fontWeight: 600, marginTop: 6 }}>
+                  {selSvcIds.length} hizmet seçildi
+                </div>
+              )}
+            {allServices.length === 0 && (
+              <div style={{ padding: "12px", borderRadius: 10, border: "1px solid var(--border,#eaecf0)", fontSize: 13, color: "#94a3b8", textAlign: "center" }}>
+                Henüz hizmet eklenmemiş. Hizmetler menüsünden hizmet ekleyebilirsiniz.
+              </div>
+            )}
           </div>
 
           {/* Leaves */}

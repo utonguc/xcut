@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 type Settings = { isActive: boolean; phoneNumberId?: string; fromNumber?: string; hasToken: boolean };
 type Log = { id: string; toNumber: string; messageBody: string; status: string; customerName?: string; sentByName?: string; messageType?: string; errorDetail?: string; createdAtUtc: string };
@@ -11,6 +12,7 @@ type Paged<T> = { items: T[]; total: number; page: number; pageSize: number };
 const statusColor: Record<string, string> = { sent: "#16a34a", failed: "#dc2626", pending: "#d97706" };
 
 export default function WhatsAppPage() {
+  const { toast } = useToast();
   const [tab, setTab] = useState<"settings"|"logs">("settings");
 
   // Settings state
@@ -56,8 +58,8 @@ export default function WhatsAppPage() {
       body: JSON.stringify({ isActive, apiToken: apiToken || undefined, phoneNumberId: phoneNumId || undefined, fromNumber: fromNumber || undefined }),
     });
     setSaving(false);
-    if (r.ok) { setApiToken(""); loadSettings(); alert("Ayarlar kaydedildi."); }
-    else alert("Kaydedilemedi.");
+    if (r.ok) { setApiToken(""); loadSettings(); toast.success("Ayarlar kaydedildi."); }
+    else toast.error("Kaydedilemedi.");
   };
 
   return (
@@ -118,7 +120,8 @@ export default function WhatsAppPage() {
           ) : logs.length === 0 ? (
             <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>Mesaj geçmişi bulunamadı.</div>
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 560 }}>
               <thead>
                 <tr style={{ background: "#faf5ff" }}>
                   {["Tarih","Numara","Müşteri","Tip","Mesaj","Durum"].map(h => (
@@ -144,6 +147,7 @@ export default function WhatsAppPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
           {total > 30 && (
             <div style={{ padding: "12px 20px", borderTop: "1px solid #f1f5f9", display: "flex", gap: 8, justifyContent: "center" }}>

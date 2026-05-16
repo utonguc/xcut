@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import { exportCsv } from "@/lib/export";
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -15,26 +17,26 @@ type Customer = {
   birthDate?: string;
   gender?: string;
   notes?: string;
-  leadStatus?: string;
-  leadSource?: string;
+  customerStatus?: string;
   createdAt?: string;
 };
 
 /* ── Constants ──────────────────────────────────────────────────── */
-const LEAD_STATUSES = ["Yeni","İletişim Kuruldu","Teklif Verildi","Randevu Oluştu","İşlem Yapıldı","İptal"];
+const LEAD_STATUSES = ["Yeni","Aktif","VIP","Pasif","Randevu Var"];
 const LEAD_SOURCES  = ["Instagram","Facebook","Google","TikTok","Referans","Walk-in","Diğer"];
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  "Yeni":             { bg: "#dbeafe", color: "#1e40af" },
-  "İletişim Kuruldu": { bg: "#fef3c7", color: "#92400e" },
-  "Teklif Verildi":   { bg: "#ede9fe", color: "#5b21b6" },
-  "Randevu Oluştu":   { bg: "#d1fae5", color: "#065f46" },
-  "İşlem Yapıldı":    { bg: "#dcfce7", color: "#166534" },
-  "İptal":            { bg: "#fee2e2", color: "#991b1b" },
+  "Yeni":       { bg: "#dbeafe", color: "#1e40af" },
+  "Aktif":      { bg: "#dcfce7", color: "#166534" },
+  "VIP":        { bg: "#ede9fe", color: "#5b21b6" },
+  "Pasif":      { bg: "#f1f5f9", color: "#475569" },
+  "Randevu Var":{ bg: "#fef3c7", color: "#92400e" },
 };
 
 /* ── Page ───────────────────────────────────────────────────────── */
 export default function CustomersPage() {
+  const { confirm } = useToast();
+  const router = useRouter();
   const [customers,  setCustomers]  = useState<Customer[]>([]);
   const [loading,    setLoading]    = useState(false);
   const [search,     setSearch]     = useState("");
@@ -55,13 +57,14 @@ export default function CustomersPage() {
   useEffect(() => { load(); }, [load]);
 
   const del = async (id: string) => {
-    if (!confirm("Bu müşteriyi silmek istediğinizden emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu müşteriyi silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/Customers/${id}`, { method: "DELETE" });
     load();
   };
 
   const updateStatus = async (id: string, status: string) => {
-    await apiFetch(`/Customers/${id}/lead-status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    await apiFetch(`/Customers/${id}/status`, { method: "PATCH", body: JSON.stringify({ customerStatus: status }) });
     load();
   };
 
@@ -70,7 +73,7 @@ export default function CustomersPage() {
       customers.map(c => ({
         "Ad": c.firstName, "Soyad": c.lastName,
         "Telefon": c.phone ?? "", "E-posta": c.email ?? "",
-        "Durum": c.leadStatus ?? "", "Kaynak": c.leadSource ?? "",
+        "Durum": c.customerStatus ?? "",
       })),
       "musteriler"
     );
@@ -119,20 +122,21 @@ export default function CustomersPage() {
         </div>
       ) : view === "list" ? (
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 600 }}>
             <thead>
               <tr style={{ background: "var(--surface-2,#f8fafc)" }}>
-                {["Müşteri","Telefon","E-posta","Durum","Kaynak",""].map(h => (
+                {["Müşteri","Telefon","E-posta","Durum",""].map(h => (
                   <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontWeight: 700, fontSize: 12, color: "#64748b", borderBottom: "1px solid var(--border,#eaecf0)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Müşteri bulunamadı</td></tr>
+                <tr><td colSpan={5} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Müşteri bulunamadı</td></tr>
               )}
               {filtered.map(c => {
-                const sc = STATUS_COLORS[c.leadStatus ?? "Yeni"] ?? STATUS_COLORS["Yeni"];
+                const sc = STATUS_COLORS[c.customerStatus ?? "Yeni"] ?? STATUS_COLORS["Yeni"];
                 return (
                   <tr key={c.id} style={{ borderBottom: "1px solid var(--border,#f2f4f7)" }}>
                     <td style={{ padding: "12px 16px" }}>
@@ -142,16 +146,16 @@ export default function CustomersPage() {
                     <td style={{ padding: "12px 16px", color: "#64748b" }}>{c.email ?? "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <select
-                        value={c.leadStatus ?? "Yeni"}
+                        value={c.customerStatus ?? "Yeni"}
                         onChange={e => updateStatus(c.id, e.target.value)}
                         style={{ padding: "4px 8px", borderRadius: 8, border: "none", background: sc.bg, color: sc.color, fontWeight: 700, fontSize: 12, cursor: "pointer" }}
                       >
                         {LEAD_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     </td>
-                    <td style={{ padding: "12px 16px", color: "#64748b", fontSize: 12 }}>{c.leadSource ?? "—"}</td>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => router.push(`/customers/${c.id}`)} className="btn btn-ghost" style={{ padding: "6px 12px", minHeight: 34, fontSize: 12 }}>Kart</button>
                         <button onClick={() => { setEditCustomer(c); setShowModal(true); }} className="btn btn-ghost" style={{ padding: "6px 12px", minHeight: 34, fontSize: 12 }}>Düzenle</button>
                         <button onClick={() => setBoyaCustomer(c)} style={{ padding: "6px 10px", minHeight: 34, borderRadius: 8, border: "1px solid #e9d5ff", background: "#faf5ff", color: "#7c3aed", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }}>🎨 Boya</button>
                         <button onClick={() => del(c.id)} style={{ padding: "6px 10px", minHeight: 34, borderRadius: 8, border: "1px solid #fee2e2", background: "#fef2f2", color: "#ef4444", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Sil</button>
@@ -162,12 +166,13 @@ export default function CustomersPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         /* ── KANBAN VIEW ── */
         <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 }}>
           {LEAD_STATUSES.map(status => {
-            const col = filtered.filter(c => (c.leadStatus ?? "Yeni") === status);
+            const col = filtered.filter(c => (c.customerStatus ?? "Yeni") === status);
             const sc = STATUS_COLORS[status];
             return (
               <div key={status} style={{ minWidth: 220, maxWidth: 240, flexShrink: 0 }}>
@@ -181,11 +186,10 @@ export default function CustomersPage() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 4px", background: "var(--surface-2,#f8fafc)", borderRadius: "0 0 12px 12px", minHeight: 100 }}>
                   {col.map(c => (
-                    <div key={c.id} className="card" style={{ padding: "12px 14px", cursor: "pointer" }}
-                      onClick={() => { setEditCustomer(c); setShowModal(true); }}>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{c.firstName} {c.lastName}</div>
+                    <div key={c.id} className="card" style={{ padding: "12px 14px" }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, cursor: "pointer" }} onClick={() => router.push(`/customers/${c.id}`)}>{c.firstName} {c.lastName}</div>
                       {c.phone && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{c.phone}</div>}
-                      {c.leadSource && <div style={{ fontSize: 11, color: "#94a3b8" }}>{c.leadSource}</div>}
+                      <button onClick={() => { setEditCustomer(c); setShowModal(true); }} style={{ marginTop: 6, padding: "3px 8px", borderRadius: 6, border: "1px solid #d0d5dd", background: "#f8fafc", fontSize: 11, cursor: "pointer" }}>Düzenle</button>
                     </div>
                   ))}
                 </div>
@@ -230,7 +234,6 @@ function CustomerModal({ customer, onClose, onSaved }: { customer: Customer | nu
     email:     customer?.email ?? "",
     birthDate: customer?.birthDate?.slice(0,10) ?? "",
     gender:    customer?.gender ?? "",
-    leadSource: customer?.leadSource ?? "",
     notes:     customer?.notes ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -279,13 +282,6 @@ function CustomerModal({ customer, onClose, onSaved }: { customer: Customer | nu
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Kaynak</label>
-            <select value={form.leadSource} onChange={set("leadSource")} style={s}>
-              <option value="">Seçiniz</option>
-              {LEAD_SOURCES.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </div>
-          <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Notlar</label>
             <textarea value={form.notes} onChange={set("notes")} rows={2} style={{ ...s, resize: "vertical" }} placeholder="İsteğe bağlı not..." />
           </div>
@@ -312,6 +308,7 @@ type ColorFormula = {
 type ColorEntry = { name: string; amount: string };
 
 function BojaKartModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+  const { toast, confirm } = useToast();
   const [formulas,  setFormulas]  = useState<ColorFormula[]>([]);
   const [loading,   setLoading]   = useState(false);
   const [showForm,  setShowForm]  = useState(false);
@@ -375,11 +372,12 @@ function BojaKartModal({ customer, onClose }: { customer: Customer; onClose: () 
       : await apiFetch("/ColorFormula", { method: "POST", body: JSON.stringify(body) });
     setSaving(false);
     if (r.ok) { closeForm(); load(); }
-    else alert("Kayıt hatası.");
+    else toast.error("Kayıt hatası.");
   };
 
   const del = async (id: string) => {
-    if (!confirm("Bu formülü silmek istediğinizden emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu formülü silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/ColorFormula/${id}`, { method: "DELETE" });
     load();
   };

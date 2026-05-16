@@ -17,14 +17,14 @@ const PLANS = [
     key: "pro", name: "Profesyonel", price: "₺1.990", priceYear: "₺1.592",
     period: "/ay", desc: "Büyüyen salonlar için tam paket",
     color: "#7c3aed", highlight: true,
-    features: ["Başlangıç paketi dahil", "Web sitesi & online randevu", "Finans & faturalama & PDF", "Raporlar & analitik", "Görevler & belge yönetimi", "Çalışma takvimi", "Randevu istekleri", "15 kullanıcıya kadar", "Öncelikli destek"],
+    features: ["Başlangıç paketi dahil", "Web sitesi & online randevu", "Finans & faturalama & PDF", "Raporlar & analitik", "Google Takvim entegrasyonu", "Görevler & belge yönetimi", "Randevu istekleri", "15 kullanıcıya kadar", "Öncelikli destek"],
     missing: ["Stok yönetimi", "WhatsApp kampanyaları", "Anket & memnuniyet"],
   },
   {
     key: "kurumsal", name: "Kurumsal", price: "₺3.490", priceYear: "₺2.792",
     period: "/ay", desc: "Zincir salon & franchise yapıları",
     color: "#6d28d9", highlight: false,
-    features: ["Profesyonel paketi dahil", "Stok yönetimi", "WhatsApp kampanyaları", "Anket & memnuniyet sistemi", "Çoklu şube desteği", "Sınırsız kullanıcı", "API erişimi", "Özel entegrasyon desteği"],
+    features: ["Profesyonel paketi dahil", "Stok yönetimi", "WhatsApp kampanyaları", "Anket & memnuniyet sistemi", "Kiosk modu", "Çoklu şube desteği", "Sınırsız kullanıcı", "API erişimi", "Özel entegrasyon desteği"],
     missing: [],
   },
 ];
@@ -98,6 +98,7 @@ const MODULES = [
       "Hizmet & fiyat listesi yayını",
       "Entegre online randevu formu",
       "SEO ayarları: meta başlık, açıklama, anahtar kelimeler",
+      "AI destekli içerik oluşturma",
       "Mobil uyumlu, modern tasarım",
     ],
   },
@@ -143,6 +144,72 @@ const MODULES = [
       "Barkod desteği",
     ],
   },
+  {
+    icon: "📅",
+    title: "Google Takvim Entegrasyonu",
+    color: "#4285f4",
+    short: "Randevular otomatik olarak Google Takvim'e eklenir.",
+    details: [
+      "Salon takvimiyle tek tıkla bağlantı",
+      "Her stilist kendi Google Takvimine bağlanır",
+      "Yeni randevu anında her iki takvime de eklenir",
+      "İptal & değişikliklerde takvim otomatik güncellenir",
+      "Google ile Giriş Yap — kolay erişim",
+      "Mevcut Google hesabı üzerinden kurulum",
+    ],
+  },
+  {
+    icon: "📺",
+    title: "Kiosk Modu",
+    color: "#0891b2",
+    short: "Salon TV'sine sıra ve randevu durumunu yansıtın.",
+    details: [
+      "TV veya tablet ekranında bekleme sırası gösterimi",
+      "Gerçek zamanlı randevu durumu",
+      "Özel kiosk kodu ile kolay kurulum",
+      "Salon logonuz ve renk temanızla uyumlu",
+      "İnternet bağlantısıyla otomatik senkronizasyon",
+      "Müşteri deneyimini iyileştirir",
+    ],
+  },
+  {
+    icon: "💬",
+    title: "WhatsApp & Bildirimler",
+    color: "#16a34a",
+    short: "WhatsApp şablonları ve otomatik hatırlatmalar.",
+    details: [
+      "Özelleştirilebilir WhatsApp mesaj şablonları",
+      "Randevu öncesi 24 saat hatırlatma",
+      "Randevu onay ve iptal bildirimleri",
+      "Kampanya mesajları ile müşteri iletişimi",
+      "Toplu gönderim desteği",
+      "Mesaj gönderim geçmişi",
+    ],
+  },
+  {
+    icon: "⭐",
+    title: "Anket & Memnuniyet",
+    color: "#f59e0b",
+    short: "Müşteri geri bildirimlerini toplayın ve yayınlayın.",
+    details: [
+      "Randevu sonrası otomatik memnuniyet anketi",
+      "Yıldız değerlendirme ve yorum toplama",
+      "Olumlu yorumları web sitenizde yayınlama",
+      "Stilist bazlı memnuniyet skorları",
+      "Geri bildirim trendleri ve analiz",
+      "Müşteri sadakatini artırır",
+    ],
+  },
+];
+
+/* ── Integrations ────────────────────────────────────────────────────── */
+const INTEGRATIONS = [
+  { icon: "📅", name: "Google Calendar", desc: "Randevular otomatik senkronize", color: "#4285f4", bg: "#eef2ff" },
+  { icon: "💬", name: "WhatsApp", desc: "Hatırlatma & kampanya mesajları", color: "#16a34a", bg: "#f0fdf4" },
+  { icon: "🔐", name: "Google Sign-In", desc: "Tek tıkla güvenli giriş", color: "#ea4335", bg: "#fff1f2" },
+  { icon: "📧", name: "E-posta", desc: "Otomatik e-posta bildirimleri", color: "#d97706", bg: "#fffbeb" },
+  { icon: "📄", name: "PDF Export", desc: "Fatura & rapor indirme", color: "#7c3aed", bg: "#f5f3ff" },
+  { icon: "📺", name: "Kiosk / TV", desc: "Salon ekranı entegrasyonu", color: "#0891b2", bg: "#ecfeff" },
 ];
 
 /* ── Steps ───────────────────────────────────────────────────────────── */
@@ -156,9 +223,11 @@ const STEPS = [
 const FAQS = [
   { q: "30 günlük trial bittikten sonra ne olur?", a: "Hesabınız otomatik olarak donmaz — bizimle iletişime geçip bir plan seçmeniz yeterli. Verileriniz silinmez." },
   { q: "Verilerim güvende mi?", a: "Tüm veriler Türkiye'deki sunucularda şifreli olarak tutulur. SSL/TLS ile korunur, düzenli yedekleme yapılır." },
+  { q: "Google Takvim entegrasyonu nasıl çalışıyor?", a: "Ayarlar > Entegrasyonlar bölümünden Google hesabınızı bağlayın. Bundan sonra oluşturduğunuz her randevu hem salon takvimine hem de ilgili stalistin kişisel Google Takvimine otomatik eklenir." },
   { q: "Birden fazla şubem var, ne yapmalıyım?", a: "Kurumsal paketimiz çok şubeli kullanıma uygundur. Franchise fiyatlandırması için bizimle iletişime geçin." },
   { q: "Mevcut müşteri verilerimi aktarabilir miyim?", a: "Excel/CSV formatında müşteri ve randevu verisi aktarımı desteklenir. Ücretsiz migrasyon desteği sağlıyoruz." },
   { q: "Online randevu nasıl çalışıyor?", a: "Web sitesi modülüyle oluşturduğunuz sayfa üzerinden müşterileriniz doğrudan randevu alabilir. Onay sistemi sizin kontrolünüzde." },
+  { q: "Kiosk modu nedir?", a: "Salonunuzdaki TV veya tablet ekranına bağlanarak müşterilerin bekleme sırasını ve randevu durumunu canlı olarak görmesini sağlar. Ayarlar'dan oluşturulan kod ile kurulur." },
   { q: "Teknik destek nasıl işliyor?", a: "Tüm paketlerde e-posta desteği mevcuttur. Profesyonel ve Kurumsal paketlerde öncelikli destek ve telefon hattı dahildir." },
 ];
 
@@ -167,42 +236,109 @@ export default function LandingPage() {
   const [yearly,     setYearly]     = useState(false);
   const [openFaq,    setOpenFaq]    = useState<number | null>(null);
   const [openModule, setOpenModule] = useState<number | null>(null);
+  const [menuOpen,   setMenuOpen]   = useState(false);
 
   return (
     <div style={{ fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#0f172a", background: "#fff" }}>
+      <style>{`
+        @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+        @keyframes pulse-glow { 0%,100% { opacity:0.6; } 50% { opacity:1; } }
+        .nav-links { display: flex; align-items: center; gap: 6px; }
+        .nav-hamburger { display: none; }
+        .nav-mobile-menu { display: none; }
+        @media (max-width: 768px) {
+          .nav-links { display: none !important; }
+          .nav-hamburger { display: flex !important; }
+          .nav-mobile-menu { display: flex !important; }
+        }
+      `}</style>
 
       {/* ── Navbar ── */}
       <nav style={{
         position: "sticky", top: 0, zIndex: 100,
-        background: "rgba(255,255,255,0.92)", backdropFilter: "blur(12px)",
+        background: "rgba(255,255,255,0.94)", backdropFilter: "blur(12px)",
         borderBottom: "1px solid #f1f5f9",
-        padding: "0 24px", height: 64,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
-        <div style={{ fontWeight: 900, fontSize: 20, letterSpacing: "-0.5px" }}>
-          <span style={{ color: "#7c3aed" }}>x</span>Cut
+        <div style={{ padding: "0 24px", height: 64, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontWeight: 900, fontSize: 20, letterSpacing: "-0.5px" }}>
+            <span style={{ color: "#7c3aed" }}>x</span>Cut
+          </div>
+
+          {/* Desktop links */}
+          <div className="nav-links">
+            <a href="#moduller"       style={navLink}>Modüller</a>
+            <a href="#entegrasyonlar" style={navLink}>Entegrasyonlar</a>
+            <a href="#fiyatlar"       style={navLink}>Fiyatlar</a>
+            <a href="#sss"            style={navLink}>SSS</a>
+            <Link href="/salon-bul" style={{
+              padding: "7px 14px", fontSize: 14, borderRadius: 8, fontWeight: 700,
+              textDecoration: "none",
+              background: "linear-gradient(135deg, #7c3aed, #a21caf)",
+              color: "#fff",
+            }}>✨ AI Ara</Link>
+            <Link href="/demo" style={{
+              padding: "9px 18px", borderRadius: 10,
+              background: "#f5f3ff", color: "#7c3aed",
+              fontWeight: 700, fontSize: 14, textDecoration: "none",
+            }}>Ücretsiz Dene</Link>
+            <Link href="/login" style={{
+              padding: "9px 18px", borderRadius: 10,
+              background: "#7c3aed", color: "#fff",
+              fontWeight: 700, fontSize: 14, textDecoration: "none",
+            }}>Giriş Yap</Link>
+          </div>
+
+          {/* Mobile hamburger */}
+          <button
+            className="nav-hamburger"
+            onClick={() => setMenuOpen(o => !o)}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              padding: 8, borderRadius: 8, color: "#0f172a",
+              display: "flex", flexDirection: "column", gap: 5, alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <span style={{ display: "block", width: 22, height: 2, background: menuOpen ? "#7c3aed" : "#0f172a", borderRadius: 2, transition: "all 0.2s", transform: menuOpen ? "rotate(45deg) translate(5px, 5px)" : "none" }} />
+            <span style={{ display: "block", width: 22, height: 2, background: menuOpen ? "#7c3aed" : "#0f172a", borderRadius: 2, transition: "all 0.2s", opacity: menuOpen ? 0 : 1 }} />
+            <span style={{ display: "block", width: 22, height: 2, background: menuOpen ? "#7c3aed" : "#0f172a", borderRadius: 2, transition: "all 0.2s", transform: menuOpen ? "rotate(-45deg) translate(5px, -5px)" : "none" }} />
+          </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <a href="#moduller" style={navLink}>Modüller</a>
-          <a href="#fiyatlar" style={navLink}>Fiyatlar</a>
-          <a href="#sss"      style={navLink}>SSS</a>
-          <Link href="/salon-bul" style={{
-            padding: "7px 14px", fontSize: 14, borderRadius: 8, fontWeight: 700,
-            textDecoration: "none",
-            background: "linear-gradient(135deg, #7c3aed, #a21caf)",
-            color: "#fff",
-          }}>✨ AI Ara</Link>
-          <Link href="/demo" style={{
-            padding: "9px 18px", borderRadius: 10,
-            background: "#f5f3ff", color: "#7c3aed",
-            fontWeight: 700, fontSize: 14, textDecoration: "none",
-          }}>Ücretsiz Dene</Link>
-          <Link href="/login" style={{
-            padding: "9px 18px", borderRadius: 10,
-            background: "#7c3aed", color: "#fff",
-            fontWeight: 700, fontSize: 14, textDecoration: "none",
-          }}>Giriş Yap</Link>
-        </div>
+
+        {/* Mobile dropdown */}
+        {menuOpen && (
+          <div className="nav-mobile-menu" style={{
+            flexDirection: "column", gap: 4,
+            padding: "12px 16px 16px",
+            borderTop: "1px solid #f1f5f9",
+            background: "rgba(255,255,255,0.98)",
+          }}>
+            {[
+              ["Modüller", "#moduller"],
+              ["Entegrasyonlar", "#entegrasyonlar"],
+              ["Fiyatlar", "#fiyatlar"],
+              ["SSS", "#sss"],
+            ].map(([lbl, href]) => (
+              <a key={lbl} href={href} onClick={() => setMenuOpen(false)} style={{
+                padding: "12px 14px", borderRadius: 10, fontSize: 15, fontWeight: 600,
+                color: "#344054", textDecoration: "none", display: "block",
+              }}>{lbl}</a>
+            ))}
+            <div style={{ height: 1, background: "#f1f5f9", margin: "4px 0" }} />
+            <Link href="/salon-bul" onClick={() => setMenuOpen(false)} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "12px 14px", borderRadius: 10, fontSize: 15, fontWeight: 700,
+              background: "linear-gradient(135deg, #7c3aed, #a21caf)", color: "#fff", textDecoration: "none",
+            }}>✨ AI ile Salon Bul</Link>
+            <Link href="/demo" onClick={() => setMenuOpen(false)} style={{
+              display: "block", padding: "12px 14px", borderRadius: 10, fontSize: 15,
+              fontWeight: 700, background: "#f5f3ff", color: "#7c3aed", textDecoration: "none",
+            }}>Ücretsiz Dene</Link>
+            <Link href="/login" onClick={() => setMenuOpen(false)} style={{
+              display: "block", padding: "12px 14px", borderRadius: 10, fontSize: 15,
+              fontWeight: 700, background: "#7c3aed", color: "#fff", textDecoration: "none", textAlign: "center",
+            }}>Giriş Yap</Link>
+          </div>
+        )}
       </nav>
 
       {/* ── Hero ── */}
@@ -212,6 +348,7 @@ export default function LandingPage() {
         position: "relative", overflow: "hidden",
       }}>
         <div style={{ position: "absolute", top: -120, left: "50%", transform: "translateX(-50%)", width: 700, height: 700, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,58,237,0.18) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", top: 40, right: "10%", width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(66,133,244,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
 
         <div style={{ position: "relative" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 18px", borderRadius: 999, background: "rgba(124,58,237,0.2)", border: "1px solid rgba(167,139,250,0.3)", fontSize: 13, fontWeight: 700, marginBottom: 28, color: "#c4b5fd" }}>
@@ -227,7 +364,7 @@ export default function LandingPage() {
           </h1>
 
           <p style={{ margin: "0 auto 44px", maxWidth: 600, fontSize: 19, color: "#94a3b8", lineHeight: 1.65 }}>
-            Randevu, stilist, müşteri, finans, web sitesi ve AI destekli araçlar —<br />
+            Randevu, stilist, müşteri, finans, Google Takvim ve AI destekli araçlar —<br />
             tüm salon operasyonunuz tek akıllı platformda.
           </p>
 
@@ -262,6 +399,155 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Yeni Özellikler Şeridi ── */}
+      <section style={{ background: "#7c3aed", padding: "14px 24px", overflow: "hidden" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", gap: 32, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
+          {[
+            { icon: "📅", label: "Google Takvim Entegrasyonu", badge: "Yeni" },
+            { icon: "🔐", label: "Google ile Giriş Yap", badge: "Yeni" },
+            { icon: "📺", label: "Kiosk / TV Modu", badge: "Yeni" },
+            { icon: "💬", label: "WhatsApp Şablonları", badge: "Güncellendi" },
+            { icon: "⭐", label: "Anket & Memnuniyet", badge: "Güncellendi" },
+          ].map(item => (
+            <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{item.icon}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{item.label}</span>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.2)", color: "#fff", letterSpacing: "0.3px" }}>{item.badge}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Google Takvim Feature Highlight ── */}
+      <section style={{ padding: "88px 24px", background: "#fff" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 48, alignItems: "center" }}>
+            <div>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 16px", borderRadius: 999, background: "#eef2ff", border: "1px solid #c7d2fe", fontSize: 12, fontWeight: 800, color: "#4338ca", marginBottom: 20, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                📅 Yeni — Google Takvim
+              </div>
+              <h2 style={{ margin: "0 0 16px", fontSize: "clamp(26px, 3.5vw, 38px)", fontWeight: 900, letterSpacing: "-1px", lineHeight: 1.15, color: "#0f172a" }}>
+                Her randevu, hem<br />salon hem stilistin<br />
+                <span style={{ color: "#4285f4" }}>Google Takvimine</span> düşer.
+              </h2>
+              <p style={{ margin: "0 0 32px", color: "#64748b", fontSize: 16, lineHeight: 1.7 }}>
+                Salon Google Takviminizi ve her stalistin kişisel takvimini tek seferinde bağlayın.
+                Yeni randevu oluşturulduğunda tüm takvimler anında güncellenir. İptal ve değişiklikler de otomatik yansır.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {[
+                  "Salon takvimi + kişisel stilist takvimi eşzamanlı güncellenir",
+                  "Google ile Giriş Yap — tek tıkla hem giriş hem takvim kurulumu",
+                  "Randevu iptali veya değişikliği takvimlere anında yansır",
+                  "Her stilist kendi Google hesabını bağlayabilir",
+                ].map(f => (
+                  <div key={f} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ color: "#4285f4", fontWeight: 800, flexShrink: 0, marginTop: 2 }}>✓</span>
+                    <span style={{ fontSize: 14, color: "#344054", lineHeight: 1.5 }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Visual — takvim kartı */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Salon takvim kartı */}
+              <div style={{
+                background: "#fff", borderRadius: 16, border: "1.5px solid #e0e7ff",
+                padding: "16px 20px", boxShadow: "0 4px 20px rgba(66,133,244,0.08)",
+                display: "flex", alignItems: "center", gap: 16,
+              }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>📅</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#1e293b" }}>Salon Google Takvimi</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Tüm randevular salon takvimine eklendi</div>
+                </div>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+              </div>
+              {/* Stilist 1 */}
+              <div style={{
+                background: "#fff", borderRadius: 16, border: "1.5px solid #dcfce7",
+                padding: "16px 20px", boxShadow: "0 4px 20px rgba(34,197,94,0.07)",
+                display: "flex", alignItems: "center", gap: 16,
+              }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>👩‍🦱</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#1e293b" }}>Ayşe Kaya — Kişisel Takvim</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Randevular kişisel takvime yansıtıldı</div>
+                </div>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+              </div>
+              {/* Stilist 2 */}
+              <div style={{
+                background: "#fff", borderRadius: 16, border: "1.5px solid #dcfce7",
+                padding: "16px 20px", boxShadow: "0 4px 20px rgba(34,197,94,0.07)",
+                display: "flex", alignItems: "center", gap: 16,
+              }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>💇‍♂️</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#1e293b" }}>Mehmet Çelik — Kişisel Takvim</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Randevular kişisel takvime yansıtıldı</div>
+                </div>
+                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+              </div>
+              <div style={{ background: "#f8fafc", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>🔐</span>
+                <span style={{ fontSize: 13, color: "#475569", lineHeight: 1.4 }}>
+                  <strong style={{ color: "#1e293b" }}>Google ile Giriş Yap</strong> — Bağlantı kurulum ve kimlik doğrulama tek adımda
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Kiosk Feature ── */}
+      <section style={{ padding: "0 24px 88px", background: "#fff" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{
+            background: "linear-gradient(135deg, #0c4a6e 0%, #0e7490 100%)",
+            borderRadius: 24, padding: "52px 44px",
+            display: "flex", alignItems: "center", gap: 44, flexWrap: "wrap",
+          }}>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: 999, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", fontSize: 12, fontWeight: 800, color: "#e0f2fe", marginBottom: 16 }}>
+                📺 Yeni — Kiosk Modu
+              </div>
+              <h3 style={{ margin: "0 0 14px", fontSize: 30, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
+                Salonunuzun TV ekranına<br />sıra durumunu yansıtın.
+              </h3>
+              <p style={{ margin: "0 0 28px", color: "#bae6fd", fontSize: 15, lineHeight: 1.7 }}>
+                Ayarlar'dan bir Kiosk kodu oluşturun, TV veya tabletinizden açın. Müşterileriniz bekleme sırasını ve randevu durumunu canlı olarak takip eder.
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {["Gerçek Zamanlı", "Kolay Kurulum", "Mobil Uyumlu", "Özelleştirilebilir"].map(tag => (
+                  <span key={tag} style={{ padding: "5px 12px", borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#e0f2fe", fontSize: 12, fontWeight: 700, border: "1px solid rgba(255,255,255,0.2)" }}>{tag}</span>
+                ))}
+              </div>
+            </div>
+            {/* Kiosk ekran önizleme */}
+            <div style={{ flexShrink: 0, width: 280, background: "rgba(0,0,0,0.3)", border: "2px solid rgba(255,255,255,0.15)", borderRadius: 16, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#7dd3fc", marginBottom: 16, textAlign: "center" }}>📺 Bekleme Ekranı</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { name: "Ahmet Y.", service: "Saç Kesimi", status: "Hazır", color: "#22c55e" },
+                  { name: "Fatma K.", service: "Saç Boyama", status: "Sırada", color: "#f59e0b" },
+                  { name: "Ali R.", service: "Sakal Tıraşı", status: "Sırada", color: "#f59e0b" },
+                ].map((r, i) => (
+                  <div key={i} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9" }}>{r.name}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{r.service}</div>
+                    </div>
+                    <div style={{ padding: "3px 10px", borderRadius: 999, background: r.color + "22", border: `1px solid ${r.color}44`, fontSize: 11, fontWeight: 700, color: r.color }}>{r.status}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── AI Özellikleri ── */}
       <section style={{ padding: "88px 24px", background: "#fafafa" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -278,12 +564,7 @@ export default function LandingPage() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20 }}>
-            {/* AI Salon Arama */}
-            <div style={{
-              background: "linear-gradient(135deg, #1e1b4b 0%, #2e1065 100%)",
-              borderRadius: 20, padding: "32px 28px", color: "#fff",
-              position: "relative", overflow: "hidden",
-            }}>
+            <div style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #2e1065 100%)", borderRadius: 20, padding: "32px 28px", color: "#fff", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", bottom: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(124,58,237,0.2)" }} />
               <div style={{ position: "relative" }}>
                 <div style={{ fontSize: 40, marginBottom: 16 }}>🔍</div>
@@ -291,22 +572,13 @@ export default function LandingPage() {
                 <p style={{ fontSize: 14, color: "#c4b5fd", lineHeight: 1.65, margin: "0 0 24px" }}>
                   İhtiyacını yaz — saç kestirme, tırnak bakımı, makyaj — AI şehrindeki en uygun salonları listeler ve anında randevu almanı sağlar.
                 </p>
-                <Link href="/salon-bul" style={{
-                  display: "inline-block", padding: "10px 20px", borderRadius: 10,
-                  background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)",
-                  color: "#fff", fontWeight: 700, fontSize: 13, textDecoration: "none",
-                }}>
+                <Link href="/salon-bul" style={{ display: "inline-block", padding: "10px 20px", borderRadius: 10, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
                   Dene → Salon Bul
                 </Link>
               </div>
             </div>
 
-            {/* AI Web Sitesi İçerik */}
-            <div style={{
-              background: "linear-gradient(135deg, #4c1d95 0%, #6d28d9 100%)",
-              borderRadius: 20, padding: "32px 28px", color: "#fff",
-              position: "relative", overflow: "hidden",
-            }}>
+            <div style={{ background: "linear-gradient(135deg, #4c1d95 0%, #6d28d9 100%)", borderRadius: 20, padding: "32px 28px", color: "#fff", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", bottom: -40, right: -40, width: 180, height: 180, borderRadius: "50%", background: "rgba(167,139,250,0.15)" }} />
               <div style={{ position: "relative" }}>
                 <div style={{ fontSize: 40, marginBottom: 16 }}>✍️</div>
@@ -314,25 +586,14 @@ export default function LandingPage() {
                 <p style={{ fontSize: 14, color: "#e9d5ff", lineHeight: 1.65, margin: "0 0 24px" }}>
                   Salon adı ve uzmanlık alanını gir — AI sizin için hero metnini, hakkımızda ve SEO içeriklerini saniyeler içinde oluşturur.
                 </p>
-                <div style={{
-                  background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: 10, padding: "10px 14px",
-                  fontSize: 12, color: "#e9d5ff", lineHeight: 1.6,
-                }}>
+                <div style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#e9d5ff", lineHeight: 1.6 }}>
                   ✨ Web Sitesi modülüne girin → "AI ile İçerik Oluştur" butonuna tıklayın
                 </div>
               </div>
             </div>
 
-            {/* Yakında */}
-            <div style={{
-              background: "#fff", borderRadius: 20, padding: "32px 28px",
-              border: "1px dashed #c4b5fd",
-              position: "relative", overflow: "hidden",
-            }}>
-              <div style={{ position: "absolute", top: 16, right: 16, padding: "4px 10px", borderRadius: 999, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 11, fontWeight: 700, color: "#15803d" }}>
-                Yakında
-              </div>
+            <div style={{ background: "#fff", borderRadius: 20, padding: "32px 28px", border: "1px dashed #c4b5fd", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 16, right: 16, padding: "4px 10px", borderRadius: 999, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 11, fontWeight: 700, color: "#15803d" }}>Yakında</div>
               <div style={{ fontSize: 40, marginBottom: 16 }}>🤖</div>
               <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 10, color: "#0f172a", letterSpacing: "-0.5px" }}>AI Randevu Asistanı</div>
               <p style={{ fontSize: 14, color: "#64748b", lineHeight: 1.65, margin: "0 0 24px" }}>
@@ -389,8 +650,14 @@ export default function LandingPage() {
                   background: openModule === i ? m.color + "06" : "#fff",
                   padding: 20, cursor: "pointer", transition: "all 0.2s",
                   boxShadow: openModule === i ? `0 4px 20px ${m.color}20` : "none",
+                  position: "relative",
                 }}
               >
+                {(m.title === "Google Takvim Entegrasyonu" || m.title === "Kiosk Modu" || m.title === "WhatsApp & Bildirimler" || m.title === "Anket & Memnuniyet") && (
+                  <div style={{ position: "absolute", top: 12, right: 12, padding: "2px 8px", borderRadius: 999, background: m.title === "Google Takvim Entegrasyonu" || m.title === "Kiosk Modu" ? "#ede9fe" : "#fef3c7", fontSize: 10, fontWeight: 800, color: m.title === "Google Takvim Entegrasyonu" || m.title === "Kiosk Modu" ? "#6d28d9" : "#92400e" }}>
+                    {m.title === "Google Takvim Entegrasyonu" || m.title === "Kiosk Modu" ? "Yeni" : "Güncellendi"}
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: openModule === i ? 16 : 0 }}>
                   <div style={{ fontSize: 28, width: 48, height: 48, borderRadius: 12, background: m.color + "15", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     {m.icon}
@@ -399,9 +666,7 @@ export default function LandingPage() {
                     <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{m.title}</div>
                     <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{m.short}</div>
                   </div>
-                  <div style={{ color: "#94a3b8", fontSize: 18, transition: "transform 0.2s", transform: openModule === i ? "rotate(180deg)" : "none" }}>
-                    ›
-                  </div>
+                  <div style={{ color: "#94a3b8", fontSize: 18, transition: "transform 0.2s", transform: openModule === i ? "rotate(180deg)" : "none" }}>›</div>
                 </div>
                 {openModule === i && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 4, borderTop: `1px solid ${m.color}20` }}>
@@ -419,8 +684,43 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Entegrasyonlar ── */}
+      <section id="entegrasyonlar" style={{ padding: "80px 24px", background: "#f8fafc" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 52 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 16px", borderRadius: 999, background: "#f5f3ff", border: "1px solid #c4b5fd", fontSize: 12, fontWeight: 800, color: "#6d28d9", marginBottom: 16, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+              Entegrasyonlar
+            </div>
+            <h2 style={{ margin: "0 0 12px", fontSize: 34, fontWeight: 900, letterSpacing: "-0.5px" }}>
+              Kullandığınız araçlarla bütünleşik
+            </h2>
+            <p style={{ margin: 0, color: "#64748b", fontSize: 16 }}>
+              xCut, günlük iş akışınızdaki araçlarla kusursuz çalışır.
+            </p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+            {INTEGRATIONS.map(item => (
+              <div key={item.name} style={{
+                background: "#fff", borderRadius: 16, border: "1px solid #eaecf0",
+                padding: "20px 20px", display: "flex", alignItems: "center", gap: 14,
+                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                transition: "box-shadow 0.2s, border-color 0.2s",
+              }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: item.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>
+                  {item.icon}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: "#1e293b" }}>{item.name}</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{item.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── AI Salon Arama Promo ── */}
-      <section style={{ padding: "0 24px 80px" }}>
+      <section style={{ padding: "80px 24px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <div style={{
             background: "linear-gradient(135deg, #0f172a 0%, #1e1130 60%, #2e1065 100%)",
@@ -428,7 +728,7 @@ export default function LandingPage() {
             display: "flex", alignItems: "center", gap: 44, flexWrap: "wrap",
           }}>
             <div style={{ flex: 1, minWidth: 260 }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: 999, background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.3)", fontSize: 12, fontWeight: 800, color: "#c4b5fd", marginBottom: 16, letterSpacing: "0.5px" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 14px", borderRadius: 999, background: "rgba(167,139,250,0.2)", border: "1px solid rgba(167,139,250,0.3)", fontSize: 12, fontWeight: 800, color: "#c4b5fd", marginBottom: 16 }}>
                 ✨ AI Destekli
               </div>
               <h3 style={{ margin: "0 0 14px", fontSize: 30, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px" }}>
@@ -447,8 +747,6 @@ export default function LandingPage() {
                 ✨ AI ile Salon Bul →
               </Link>
             </div>
-
-            {/* Sahte chat önizleme */}
             <div style={{ flexShrink: 0, width: 300, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", marginBottom: 14, display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#a78bfa", display: "inline-block" }} />
@@ -460,10 +758,7 @@ export default function LandingPage() {
                 { side: "user", text: "İstanbul, Kadıköy civarı" },
                 { side: "ai",   text: "Kadıköy'de 4 salon buldum, randevu müsait 🎯" },
               ].map((msg, i) => (
-                <div key={i} style={{
-                  marginBottom: 10, display: "flex",
-                  justifyContent: msg.side === "user" ? "flex-end" : "flex-start",
-                }}>
+                <div key={i} style={{ marginBottom: 10, display: "flex", justifyContent: msg.side === "user" ? "flex-end" : "flex-start" }}>
                   <div style={{
                     maxWidth: "80%", fontSize: 12, lineHeight: 1.5, padding: "8px 12px", borderRadius: 10,
                     background: msg.side === "user" ? "rgba(124,58,237,0.3)" : "rgba(255,255,255,0.1)",
@@ -569,7 +864,7 @@ export default function LandingPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
             {[
               { name: "Ayşe Hanım", salon: "Ayşe Güzellik Salonu, İstanbul", quote: "Randevu çakışmaları tarihe karıştı. WhatsApp hatırlatmaları sayesinde 'gelmeme' oranım %60 düştü." },
-              { name: "Mehmet Bey", salon: "Mehmet's Barbershop, Ankara", quote: "Web siteyi 1 saatte kurdum. Artık online randevu alıyoruz. Aylık 30-40 yeni müşteri bu kanaldan geliyor." },
+              { name: "Mehmet Bey", salon: "Mehmet's Barbershop, Ankara", quote: "Google Takvim entegrasyonu harika. Her sabah takvimimdeki randevulara bakıyorum, ayrıca sisteme girmeye gerek kalmadı." },
               { name: "Selin Hanım", salon: "Selin Nail Studio, İzmir", quote: "Stilist bazlı gelir takibi hayat kurtardı. Hangi hizmetin ne kadar getirdiğini net görüyorum." },
             ].map(t => (
               <div key={t.name} style={{ background: "#fff", borderRadius: 16, border: "1px solid #eaecf0", padding: 24 }}>
@@ -616,10 +911,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Final CTA ── */}
-      <section style={{
-        background: "linear-gradient(135deg, #0f172a 0%, #2e1065 100%)",
-        color: "#fff", padding: "80px 24px", textAlign: "center",
-      }}>
+      <section style={{ background: "linear-gradient(135deg, #0f172a 0%, #2e1065 100%)", color: "#fff", padding: "80px 24px", textAlign: "center" }}>
         <h2 style={{ margin: "0 0 16px", fontSize: 36, fontWeight: 900, letterSpacing: "-0.5px" }}>Hemen başlayın</h2>
         <p style={{ margin: "0 auto 36px", maxWidth: 480, fontSize: 16, color: "#94a3b8" }}>
           30 gün boyunca tüm özellikleri ücretsiz kullanın. Kurulum yok, kredi kartı yok.
@@ -652,9 +944,9 @@ export default function LandingPage() {
               </div>
             </div>
             {[
-              { title: "Ürün", links: [["Özellikler", "#moduller"], ["Fiyatlar", "#fiyatlar"], ["Demo", "/demo"]] },
+              { title: "Ürün", links: [["Özellikler", "#moduller"], ["Entegrasyonlar", "#entegrasyonlar"], ["Fiyatlar", "#fiyatlar"], ["Demo", "/demo"]] },
               { title: "Şirket", links: [["xShield", "https://xshield.com.tr"], ["İletişim", "mailto:info@xshield.com.tr"]] },
-              { title: "Kaynaklar", links: [["SSS", "#sss"], ["Salon Rehberi", "/salon-bul"], ["Gizlilik", "#"]] },
+              { title: "Kaynaklar", links: [["SSS", "#sss"], ["Salon Rehberi", "/salon-bul"], ["Gizlilik", "/privacy"]] },
             ].map(col => (
               <div key={col.title}>
                 <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12, color: "#344054" }}>{col.title}</div>
@@ -669,7 +961,7 @@ export default function LandingPage() {
           <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <span style={{ fontSize: 12, color: "#94a3b8" }}>© {new Date().getFullYear()} {COMPANY_NAME}. Tüm hakları saklıdır.</span>
             <div style={{ display: "flex", gap: 20 }}>
-              {[["Gizlilik Politikası", "#"], ["Kullanım Şartları", "#"]].map(([lbl, href]) => (
+              {[["Gizlilik Politikası", "/privacy"], ["Kullanım Şartları", "/terms"]].map(([lbl, href]) => (
                 <a key={lbl} href={href} style={{ fontSize: 12, color: "#94a3b8", textDecoration: "none" }}>{lbl}</a>
               ))}
             </div>

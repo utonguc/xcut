@@ -92,6 +92,18 @@ public class SalonWebsiteController : ControllerBase
     }
 
     // Public endpoint — no auth
+    // GET api/SalonWebsite/public-slugs  — sitemap / salon directory
+    [HttpGet("public-slugs"), AllowAnonymous]
+    public async Task<IActionResult> PublicSlugs()
+    {
+        var slugs = await _db.SalonWebsites
+            .Where(x => x.IsPublished)
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .Select(x => new { x.Slug, x.UpdatedAtUtc })
+            .ToListAsync();
+        return Ok(slugs);
+    }
+
     [HttpGet("public/{slug}")]
     public async Task<IActionResult> GetPublic(string slug)
     {
@@ -101,11 +113,22 @@ public class SalonWebsiteController : ControllerBase
 
         if (w is null) return NotFound(new { message = "Sayfa bulunamadı." });
 
-        var stylists = await _db.Stylists
-            .Where(x => x.SalonId == w.SalonId && x.IsActive)
+        var stylistList = await _db.Stylists
+            .Where(x => x.SalonId == w.SalonId && x.IsActive && x.ShowOnWebsite)
             .OrderBy(x => x.FullName)
-            .Select(x => new { x.Id, x.FullName, x.Specialty, x.PhotoUrl, x.Biography })
+            .Select(x => new { x.Id, x.FullName, x.Specialty, x.PhotoUrl, x.Biography, x.Specializations, x.ExperienceYears })
             .ToListAsync();
+
+        var stylistIds = stylistList.Select(s => s.Id).ToList();
+        var stylistSvcMap = await _db.StylistServices
+            .Where(ss => stylistIds.Contains(ss.StylistId))
+            .GroupBy(ss => ss.StylistId)
+            .ToDictionaryAsync(g => g.Key, g => g.Select(x => x.ServiceId).ToList());
+
+        var stylists = stylistList.Select(s => new {
+            s.Id, s.FullName, s.Specialty, s.PhotoUrl, s.Biography, s.Specializations, s.ExperienceYears,
+            SupportedServiceIds = stylistSvcMap.GetValueOrDefault(s.Id) ?? new List<Guid>(),
+        }).ToList();
 
         var services = await _db.Services
             .Where(x => x.SalonId == w.SalonId && x.IsActive)
@@ -114,6 +137,88 @@ public class SalonWebsiteController : ControllerBase
             .ToListAsync();
 
         return Ok(new { website = MapResponse(w), stylists, services });
+    }
+
+    // GET api/SalonWebsite/public/{slug}/stylists/{stylistId}/slots
+    // Returns available/busy time blocks for a stylist on a given local date.
+    [HttpGet("public/{slug}/stylists/{stylistId:guid}/slots")]
+    public async Task<IActionResult> GetPublicSlots(
+        string slug, Guid stylistId,
+        [FromQuery] string date,
+        [FromQuery] int durationMinutes = 30,
+        [FromQuery] int tzOffsetMinutes = 180)
+    {
+        var w = await _db.SalonWebsites
+            .FirstOrDefaultAsync(x => x.Slug == slug && x.IsPublished && x.BookingEnabled);
+        if (w is null) return NotFound();
+
+        if (!DateOnly.TryParse(date, out var localDate))
+            return BadRequest(new { message = "Geçersiz tarih." });
+
+        var tzOffset      = TimeSpan.FromMinutes(tzOffsetMinutes);
+        var localMidnight = localDate.ToDateTime(TimeOnly.MinValue);
+        var dayStartUtc   = DateTime.SpecifyKind(localMidnight - tzOffset, DateTimeKind.Utc);
+        var dayEndUtc     = dayStartUtc.AddDays(1);
+
+        var dow             = (int)localDate.DayOfWeek;
+        var scheduleRecord  = await _db.StylistSchedules
+            .FirstOrDefaultAsync(s => s.StylistId == stylistId && s.DayOfWeek == dow);
+
+        TimeSpan workStart, workEnd;
+        if (scheduleRecord is not null)
+        {
+            // Explicitly configured: respect IsActive flag
+            if (!scheduleRecord.IsActive) return Ok(Array.Empty<object>());
+            workStart = scheduleRecord.StartTime;
+            workEnd   = scheduleRecord.EndTime;
+        }
+        else
+        {
+            // No config yet: default Mon–Sat 09:00–18:00, Sunday off
+            if (dow == 0) return Ok(Array.Empty<object>());
+            workStart = new TimeSpan(9, 0, 0);
+            workEnd   = new TimeSpan(18, 0, 0);
+        }
+
+        var workStartUtc = DateTime.SpecifyKind(localMidnight + workStart - tzOffset, DateTimeKind.Utc);
+        var workEndUtc   = DateTime.SpecifyKind(localMidnight + workEnd   - tzOffset, DateTimeKind.Utc);
+
+        if (workEnd <= workStart) return Ok(Array.Empty<object>());
+
+        var booked = await _db.Appointments
+            .Where(a => a.StylistId == stylistId && a.Status != "Cancelled"
+                     && a.StartAtUtc < dayEndUtc && a.EndAtUtc > dayStartUtc)
+            .Select(a => new { a.StartAtUtc, a.EndAtUtc })
+            .ToListAsync();
+
+        var pending = await _db.AppointmentRequests
+            .Where(a => a.StylistId == stylistId && a.Status == "Pending"
+                     && a.RequestedStartUtc < dayEndUtc && a.RequestedEndUtc > dayStartUtc)
+            .Select(a => new { StartAtUtc = a.RequestedStartUtc, EndAtUtc = a.RequestedEndUtc })
+            .ToListAsync();
+
+        var busy = booked.Concat(pending)
+                         .Select(x => (Start: x.StartAtUtc, End: x.EndAtUtc))
+                         .ToList();
+
+        var slotDur = TimeSpan.FromMinutes(Math.Max(15, durationMinutes));
+        var step    = slotDur; // slots start every [service duration] minutes
+        var nowUtc  = DateTime.UtcNow.AddMinutes(30);
+        var cursor  = workStartUtc;
+        var slots   = new List<object>();
+
+        while (cursor + slotDur <= workEndUtc)
+        {
+            var slotEnd = cursor + slotDur;
+            if (cursor >= nowUtc) // skip past slots entirely
+            {
+                var isBusy = busy.Any(b => b.Start < slotEnd && b.End > cursor);
+                slots.Add(new { startUtc = cursor.ToString("o"), endUtc = slotEnd.ToString("o"), available = !isBusy });
+            }
+            cursor += step;
+        }
+
+        return Ok(slots);
     }
 
     private static string SlugFrom(string name) =>
@@ -142,8 +247,9 @@ public class SalonWebsiteController : ControllerBase
         w.Theme          = r.Theme;
         w.MetaTitle      = r.MetaTitle;
         w.MetaDescription = r.MetaDescription;
-        w.ShowReviews    = r.ShowReviews;
-        w.BookingEnabled = r.BookingEnabled;
+        w.ShowReviews         = r.ShowReviews;
+        w.BookingEnabled      = r.BookingEnabled;
+        w.ListedInDirectory   = r.ListedInDirectory;
     }
 
     private static SalonWebsiteResponse MapResponse(SalonWebsite w) => new()
@@ -167,8 +273,9 @@ public class SalonWebsiteController : ControllerBase
         Theme          = w.Theme,
         MetaTitle      = w.MetaTitle,
         MetaDescription = w.MetaDescription,
-        ShowReviews    = w.ShowReviews,
-        BookingEnabled = w.BookingEnabled,
-        IsPublished    = w.IsPublished,
+        ShowReviews         = w.ShowReviews,
+        BookingEnabled      = w.BookingEnabled,
+        ListedInDirectory   = w.ListedInDirectory,
+        IsPublished         = w.IsPublished,
     };
 }

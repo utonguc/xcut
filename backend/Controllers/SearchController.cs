@@ -12,14 +12,15 @@ namespace XCut.Api.Controllers;
 [Authorize]
 public class SearchController : ControllerBase
 {
+    private sealed record SearchResult(Guid Id, string Type, string Title, string? Subtitle, string Href);
+
     private readonly AppDbContext _db;
     public SearchController(AppDbContext db) => _db = db;
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
     {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     // GET api/search?q=mehmet&limit=5
@@ -31,72 +32,103 @@ public class SearchController : ControllerBase
 
         q = (q ?? "").Trim();
         if (q.Length < 2)
-            return Ok(new { customers = Array.Empty<object>(), stylists = Array.Empty<object>(), appointments = Array.Empty<object>(), tasks = Array.Empty<object>() });
+            return Ok(Array.Empty<SearchResult>());
 
-        var customers = await _db.Customers
+        var n = Math.Max(2, limit);
+
+        // ── Customers ──────────────────────────────────────────────
+        var rawCustomers = await _db.Customers
             .Where(x => x.SalonId == salonId &&
                 (EF.Functions.ILike(x.FirstName + " " + x.LastName, $"%{q}%") ||
                  (x.Phone != null && EF.Functions.ILike(x.Phone, $"%{q}%")) ||
                  (x.Email != null && EF.Functions.ILike(x.Email, $"%{q}%"))))
             .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(limit)
-            .Select(x => new
-            {
-                id       = x.Id,
-                type     = "customer",
-                title    = x.FirstName + " " + x.LastName,
-                subtitle = x.Phone ?? x.Email,
-                href     = "/customers/" + x.Id,
-            })
+            .Take(n)
+            .Select(x => new { x.Id, Name = x.FirstName + " " + x.LastName, x.Phone, x.Email })
             .ToListAsync();
 
-        var stylists = await _db.Stylists
+        var customers = rawCustomers.Select(x =>
+            new SearchResult(x.Id, "customer", x.Name, x.Phone ?? x.Email, $"/customers/{x.Id}"));
+
+        // ── Stylists ───────────────────────────────────────────────
+        var rawStylists = await _db.Stylists
             .Where(x => x.SalonId == salonId && x.IsActive &&
                 (EF.Functions.ILike(x.FullName, $"%{q}%") ||
                  (x.Specialty != null && EF.Functions.ILike(x.Specialty, $"%{q}%"))))
-            .Take(limit)
-            .Select(x => new
-            {
-                id       = x.Id,
-                type     = "stylist",
-                title    = x.FullName,
-                subtitle = x.Specialty,
-                href     = "/stylists",
-            })
+            .Take(n)
+            .Select(x => new { x.Id, x.FullName, x.Specialty })
             .ToListAsync();
 
-        var appointments = await _db.Appointments
-            .Include(x => x.Customer)
+        var stylists = rawStylists.Select(x =>
+            new SearchResult(x.Id, "stylist", x.FullName, x.Specialty, "/stylists"));
+
+        // ── Appointments ───────────────────────────────────────────
+        var rawAppts = await _db.Appointments
             .Where(x => x.SalonId == salonId &&
                 (EF.Functions.ILike(x.ServiceName, $"%{q}%") ||
                  (x.Customer != null && EF.Functions.ILike(x.Customer.FirstName + " " + x.Customer.LastName, $"%{q}%"))))
             .OrderByDescending(x => x.StartAtUtc)
-            .Take(limit)
+            .Take(n)
             .Select(x => new
             {
-                id       = x.Id,
-                type     = "appointment",
-                title    = x.ServiceName,
-                subtitle = (x.Customer != null ? x.Customer.FirstName + " " + x.Customer.LastName : "")
-                           + " · " + x.StartAtUtc.ToString("dd.MM.yyyy HH:mm"),
-                href     = "/appointments",
+                x.Id, x.ServiceName,
+                CustomerName = x.Customer != null ? x.Customer.FirstName + " " + x.Customer.LastName : "",
+                x.StartAtUtc,
             })
             .ToListAsync();
 
-        var tasks = await _db.Tasks
+        var appointments = rawAppts.Select(x =>
+            new SearchResult(x.Id, "appointment", x.ServiceName,
+                $"{x.CustomerName} · {x.StartAtUtc:dd.MM.yyyy HH:mm}", "/appointments"));
+
+        // ── Tasks ──────────────────────────────────────────────────
+        var rawTasks = await _db.Tasks
             .Where(x => x.SalonId == salonId && EF.Functions.ILike(x.Title, $"%{q}%"))
             .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(limit)
-            .Select(x => new
-            {
-                id       = x.Id,
-                type     = "task",
-                title    = x.Title,
-                subtitle = x.Status + (x.Priority != null ? " · " + x.Priority : ""),
-                href     = "/tasks",
-            })
+            .Take(n)
+            .Select(x => new { x.Id, x.Title, x.Status, x.Priority })
             .ToListAsync();
 
-        return Ok(new { customers, stylists, appointments, tasks });
+        var tasks = rawTasks.Select(x =>
+            new SearchResult(x.Id, "task", x.Title,
+                x.Status + (x.Priority != null ? $" · {x.Priority}" : ""), "/tasks"));
+
+        // ── Services ───────────────────────────────────────────────
+        var rawServices = await _db.Services
+            .Where(x => x.SalonId == salonId && x.IsActive &&
+                (EF.Functions.ILike(x.Name, $"%{q}%") ||
+                 EF.Functions.ILike(x.Category, $"%{q}%") ||
+                 (x.Description != null && EF.Functions.ILike(x.Description, $"%{q}%"))))
+            .Take(n)
+            .Select(x => new { x.Id, x.Name, x.Category, x.DurationMinutes, x.Price })
+            .ToListAsync();
+
+        var services = rawServices.Select(x =>
+            new SearchResult(x.Id, "service", x.Name,
+                $"{x.Category} · {x.DurationMinutes} dk · {x.Price:N2} ₺", "/services"));
+
+        // ── Stock ──────────────────────────────────────────────────
+        var rawStocks = await _db.StockItems
+            .Where(x => x.SalonId == salonId &&
+                (EF.Functions.ILike(x.Name, $"%{q}%") ||
+                 (x.Category != null && EF.Functions.ILike(x.Category, $"%{q}%")) ||
+                 (x.Barcode != null && EF.Functions.ILike(x.Barcode, $"%{q}%"))))
+            .Take(n)
+            .Select(x => new { x.Id, x.Name, x.Category, x.Quantity })
+            .ToListAsync();
+
+        var stocks = rawStocks.Select(x =>
+            new SearchResult(x.Id, "stock", x.Name,
+                $"{(x.Category is not null ? x.Category + " · " : "")}{x.Quantity} adet", "/stock"));
+
+        var all = customers
+            .Concat(stylists)
+            .Concat(appointments)
+            .Concat(tasks)
+            .Concat(services)
+            .Concat(stocks)
+            .ToList();
+
+        return Ok(all);
     }
 }

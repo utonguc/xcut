@@ -15,6 +15,7 @@ public class Service
     public int DurationMinutes { get; set; } = 30;
     public decimal Price { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsDemo   { get; set; } = false;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

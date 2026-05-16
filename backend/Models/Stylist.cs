@@ -28,6 +28,9 @@ public class Stylist
     public string  PayType     { get; set; } = "commission";
     public decimal FixedSalary { get; set; } = 0;
 
+    /// <summary>Salon web sitesinde stilist olarak gösterilsin mi?</summary>
+    public bool ShowOnWebsite { get; set; } = true;
+
     // ── İzin Onaycısı ─────────────────────────────────────────────────────────
     /// <summary>İzin taleplerini onaylayacak kullanıcının Id'si (null = salon yöneticisi)</summary>
     public Guid? ApproverId { get; set; }

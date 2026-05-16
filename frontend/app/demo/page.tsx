@@ -49,7 +49,27 @@ export default function DemoPage() {
       if (!res.ok) {
         setError(data.message ?? "Bir hata oluştu.");
       } else {
-        setResult({ ...(data as Result), email: form.email });
+        const r = { ...(data as Result), email: form.email };
+        setResult(r);
+        if (form.email) {
+          fetch("/api/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              template: "demo_welcome",
+              to: form.email,
+              subject: "xCut'a Hoş Geldiniz! Giriş Bilgileriniz",
+              data: {
+                fullName:    form.fullName,
+                salonName:   form.salonName,
+                userName:    r.userName,
+                tempPassword: r.tempPassword,
+                trialEndsAt: r.trialEndsAt,
+                loginUrl:    r.loginUrl ?? "https://xcut.xshield.com.tr/login",
+              },
+            }),
+          }).catch(() => {});
+        }
       }
     } catch {
       setError("Sunucuya bağlanılamadı. Lütfen tekrar deneyin.");

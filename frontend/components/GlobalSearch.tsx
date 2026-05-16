@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 
 type SearchResult = {
   id: string;
-  type: "customer" | "stylist" | "appointment" | "task";
+  type: "customer" | "stylist" | "appointment" | "task" | "service" | "stock";
   title: string;
   subtitle?: string;
   href: string;
@@ -17,6 +17,8 @@ const TYPE_META: Record<string, { icon: string; label: string; color: string }> 
   stylist:     { icon: "✂️", label: "Stilist",  color: "#0ea5e9" },
   appointment: { icon: "📅", label: "Randevu",  color: "#f59e0b" },
   task:        { icon: "✓",  label: "Görev",    color: "#22c55e" },
+  service:     { icon: "🛠️", label: "Hizmet",   color: "#ec4899" },
+  stock:       { icon: "📦", label: "Stok",     color: "#f97316" },
 };
 
 const QUICK_LINKS = [
@@ -25,6 +27,19 @@ const QUICK_LINKS = [
   { icon: "✓",  label: "Görevler",   href: "/tasks" },
   { icon: "📊", label: "Dashboard",  href: "/dashboard" },
 ];
+
+const RECENT_KEY = "xcut_search_recent";
+const MAX_RECENT = 5;
+
+function getRecent(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); } catch { return []; }
+}
+
+function saveRecent(q: string) {
+  if (!q.trim()) return;
+  const prev = getRecent().filter(x => x !== q);
+  localStorage.setItem(RECENT_KEY, JSON.stringify([q, ...prev].slice(0, MAX_RECENT)));
+}
 
 interface Props {
   open: boolean;
@@ -37,6 +52,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
   const [results, setResults]   = useState<SearchResult[]>([]);
   const [loading, setLoading]   = useState(false);
   const [cursor, setCursor]     = useState(0);
+  const [recent, setRecent]     = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout>>();
 
@@ -46,6 +62,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
       setQuery("");
       setResults([]);
       setCursor(0);
+      setRecent(getRecent());
     }
   }, [open]);
 
@@ -57,7 +74,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
       try {
         const res = await apiFetch(`/Search?q=${encodeURIComponent(q)}&limit=4`);
         if (res.ok) {
-          const data = await res.json();
+          const data: SearchResult[] = await res.json();
           setResults(data);
         }
       } finally {
@@ -66,26 +83,38 @@ export default function GlobalSearch({ open, onClose }: Props) {
     }, 220);
   }, []);
 
+  const navigate = (href: string) => {
+    router.push(href);
+    onClose();
+  };
+
+  const selectResult = (item: SearchResult) => {
+    saveRecent(query);
+    navigate(item.href);
+  };
+
+  const quickItems = query
+    ? results
+    : recent.length > 0
+      ? recent.map((r, i) => ({ id: `r${i}`, label: r, isRecent: true }))
+      : null;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    const items = query ? results : QUICK_LINKS;
-    if (e.key === "ArrowDown") { e.preventDefault(); setCursor(c => Math.min(c + 1, items.length - 1)); }
+    const navList = query ? results : QUICK_LINKS;
+    if (e.key === "ArrowDown") { e.preventDefault(); setCursor(c => Math.min(c + 1, navList.length - 1)); }
     if (e.key === "ArrowUp")   { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)); }
     if (e.key === "Enter") {
       e.preventDefault();
       if (query && results[cursor]) {
-        router.push(results[cursor].href);
-        onClose();
+        selectResult(results[cursor]);
       } else if (!query && QUICK_LINKS[cursor]) {
-        router.push(QUICK_LINKS[cursor].href);
-        onClose();
+        navigate(QUICK_LINKS[cursor].href);
       }
     }
     if (e.key === "Escape") onClose();
   };
 
   if (!open) return null;
-
-  const displayItems = query ? results : null;
 
   return (
     <>
@@ -109,7 +138,7 @@ export default function GlobalSearch({ open, onClose }: Props) {
             value={query}
             onChange={e => { setQuery(e.target.value); search(e.target.value); setCursor(0); }}
             onKeyDown={handleKeyDown}
-            placeholder="Müşteri, stilist, randevu ara..."
+            placeholder="Müşteri, stilist, hizmet, stok ara..."
             style={{
               flex: 1, border: "none", outline: "none", fontSize: 16,
               background: "transparent", color: "var(--text,#101828)",
@@ -121,51 +150,26 @@ export default function GlobalSearch({ open, onClose }: Props) {
           <kbd style={{ padding: "3px 8px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", background: "var(--surface-2,#f8fafc)", border: "1px solid var(--border,#e4e7ec)", color: "#94a3b8", flexShrink: 0 }}>ESC</kbd>
         </div>
 
-        {/* Results / quick links */}
-        <div style={{ maxHeight: 400, overflowY: "auto", padding: "8px 0" }}>
-          {!query && (
-            <>
-              <div style={{ padding: "6px 20px 4px", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px" }}>
-                Hızlı Erişim
-              </div>
-              {QUICK_LINKS.map((link, i) => (
-                <button
-                  key={link.href}
-                  onClick={() => { router.push(link.href); onClose(); }}
-                  style={{
-                    width: "100%", padding: "10px 20px",
-                    display: "flex", alignItems: "center", gap: 12,
-                    background: cursor === i ? "var(--primary-light,#ede9fe)" : "transparent",
-                    border: "none", cursor: "pointer", textAlign: "left",
-                    color: "var(--text,#101828)",
-                  }}
-                  onMouseEnter={() => setCursor(i)}
-                >
-                  <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{link.icon}</span>
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>{link.label}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }}>→</span>
-                </button>
-              ))}
-            </>
-          )}
-
-          {displayItems && displayItems.length === 0 && !loading && (
+        {/* Results / quick links / recent */}
+        <div style={{ maxHeight: 420, overflowY: "auto", padding: "8px 0" }}>
+          {/* ── With query: results ── */}
+          {query && results.length === 0 && !loading && (
             <div style={{ padding: "28px 20px", textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
               &quot;{query}&quot; için sonuç bulunamadı
             </div>
           )}
 
-          {displayItems && displayItems.length > 0 && (
+          {query && results.length > 0 && (
             <>
               <div style={{ padding: "6px 20px 4px", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px" }}>
                 Sonuçlar
               </div>
-              {displayItems.map((item, i) => {
+              {results.map((item, i) => {
                 const meta = TYPE_META[item.type] ?? TYPE_META.customer;
                 return (
                   <button
                     key={item.id}
-                    onClick={() => { router.push(item.href); onClose(); }}
+                    onClick={() => selectResult(item)}
                     style={{
                       width: "100%", padding: "10px 20px",
                       display: "flex", alignItems: "center", gap: 12,
@@ -196,6 +200,65 @@ export default function GlobalSearch({ open, onClose }: Props) {
                   </button>
                 );
               })}
+            </>
+          )}
+
+          {/* ── No query: recent searches ── */}
+          {!query && recent.length > 0 && (
+            <>
+              <div style={{ padding: "6px 20px 4px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px" }}>Son Aramalar</span>
+                <button
+                  onClick={() => { localStorage.removeItem(RECENT_KEY); setRecent([]); }}
+                  style={{ fontSize: 11, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
+                >
+                  Temizle
+                </button>
+              </div>
+              {recent.map((r, i) => (
+                <button
+                  key={r}
+                  onClick={() => { setQuery(r); search(r); setCursor(0); }}
+                  style={{
+                    width: "100%", padding: "9px 20px",
+                    display: "flex", alignItems: "center", gap: 12,
+                    background: "transparent", border: "none", cursor: "pointer", textAlign: "left",
+                    color: "var(--text,#101828)",
+                  }}
+                  onMouseEnter={() => setCursor(i)}
+                >
+                  <span style={{ fontSize: 15, width: 28, textAlign: "center", color: "#94a3b8" }}>🕐</span>
+                  <span style={{ fontSize: 14, color: "#475569" }}>{r}</span>
+                </button>
+              ))}
+              <div style={{ height: 8 }} />
+            </>
+          )}
+
+          {/* ── No query: quick links ── */}
+          {!query && (
+            <>
+              <div style={{ padding: "6px 20px 4px", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.6px" }}>
+                Hızlı Erişim
+              </div>
+              {QUICK_LINKS.map((link, i) => (
+                <button
+                  key={link.href}
+                  onClick={() => navigate(link.href)}
+                  style={{
+                    width: "100%", padding: "10px 20px",
+                    display: "flex", alignItems: "center", gap: 12,
+                    background: cursor === i ? "var(--primary-light,#ede9fe)" : "transparent",
+                    border: "none", cursor: "pointer", textAlign: "left",
+                    color: "var(--text,#101828)",
+                  }}
+                  onMouseEnter={() => setCursor(i)}
+                >
+                  <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{link.icon}</span>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{link.label}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }}>→</span>
+                </button>
+              ))}
             </>
           )}
         </div>

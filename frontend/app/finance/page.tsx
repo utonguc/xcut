@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import { fmtDate } from "@/lib/tz";
 
 type InvoiceItem = { id: string; description: string; quantity: number; unitPrice: number; lineTotal: number };
@@ -41,6 +42,7 @@ const card: React.CSSProperties = {
 };
 
 export default function FinancePage() {
+  const { toast, confirm } = useToast();
   const [invoices, setInvoices]   = useState<Invoice[]>([]);
   const [summary, setSummary]     = useState<Summary | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -80,7 +82,8 @@ export default function FinancePage() {
   useEffect(() => { load(); }, [load]);
 
   const deleteInvoice = async (id: string) => {
-    if (!confirm("Bu faturayı silmek istediğinize emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu faturayı silmek istediğinize emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/Invoices/${id}`, { method: "DELETE" });
     load();
   };
@@ -214,6 +217,7 @@ function InvoiceForm({ invoice, customers, stylists, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { toast } = useToast();
   const isEdit = !!invoice;
   const [customerId, setCustomerId] = useState(invoice?.customerId ?? "");
   const [stylistId, setStylistId]   = useState(invoice?.stylistId ?? "");
@@ -224,6 +228,9 @@ function InvoiceForm({ invoice, customers, stylists, onClose, onSaved }: {
   const [items, setItems]           = useState<{ description: string; quantity: number; unitPrice: number }[]>(
     invoice?.items?.map(i => ({ description: i.description, quantity: i.quantity, unitPrice: i.unitPrice })) ?? [{ description: "", quantity: 1, unitPrice: 0 }]
   );
+  const today = new Date().toISOString().slice(0, 10);
+  const [issuedAt, setIssuedAt] = useState(invoice?.issuedAtUtc ? invoice.issuedAtUtc.slice(0, 10) : today);
+  const [dueAt,    setDueAt]    = useState(invoice?.dueAtUtc    ? invoice.dueAtUtc.slice(0, 10)    : "");
   const [saving, setSaving] = useState(false);
 
   const subtotal = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
@@ -231,9 +238,9 @@ function InvoiceForm({ invoice, customers, stylists, onClose, onSaved }: {
   const total    = subtotal + taxAmt;
 
   const save = async () => {
-    if (!customerId) { alert("Müşteri seçiniz."); return; }
+    if (!customerId) { toast.warning("Müşteri seçiniz."); return; }
     setSaving(true);
-    const body = { customerId, stylistId: stylistId || undefined, status, currency, taxRate, notes, items };
+    const body = { customerId, stylistId: stylistId || undefined, status, currency, taxRate, notes, items, issuedAtUtc: new Date(issuedAt).toISOString(), dueAtUtc: dueAt ? new Date(dueAt).toISOString() : null };
     const res = isEdit
       ? await apiFetch(`/Invoices/${invoice!.id}`, { method: "PUT", body: JSON.stringify(body) })
       : await apiFetch("/Invoices", { method: "POST", body: JSON.stringify(body) });
@@ -278,6 +285,14 @@ function InvoiceForm({ invoice, customers, stylists, onClose, onSaved }: {
             <select value={taxRate} onChange={e => setTaxRate(Number(e.target.value))} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #d0d5dd", fontSize: 13 }}>
               {TAX_RATES.map(r => <option key={r}>{r}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#344054", display: "block", marginBottom: 4 }}>Fatura Tarihi</label>
+            <input type="date" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #d0d5dd", fontSize: 13, boxSizing: "border-box" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#344054", display: "block", marginBottom: 4 }}>Vade Tarihi</label>
+            <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #d0d5dd", fontSize: 13, boxSizing: "border-box" }} />
           </div>
         </div>
 

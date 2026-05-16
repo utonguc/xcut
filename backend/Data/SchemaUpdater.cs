@@ -570,5 +570,241 @@ public static class SchemaUpdater
         ALTER TABLE "Services" ADD COLUMN IF NOT EXISTS "CategoryId"   uuid REFERENCES "ServiceCategories"("Id") ON DELETE SET NULL;
         ALTER TABLE "Services" ADD COLUMN IF NOT EXISTS "Description"  text;
 
+        -- TABLE: LeaveBalances
+        CREATE TABLE IF NOT EXISTS "LeaveBalances" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid         NOT NULL,
+            "StylistId"    uuid         NOT NULL REFERENCES "Stylists"("Id") ON DELETE CASCADE,
+            "Year"         integer      NOT NULL,
+            "EntitledDays" integer      NOT NULL DEFAULT 14,
+            "UpdatedAtUtc" timestamptz  NOT NULL DEFAULT now(),
+            UNIQUE ("StylistId", "Year")
+        );
+        CREATE INDEX IF NOT EXISTS ix_leavebalances_salon ON "LeaveBalances"("SalonId");
+
+        -- IsDemo flag for Services (demo seed/cleanup support)
+        ALTER TABLE "Services" ADD COLUMN IF NOT EXISTS "IsDemo" boolean NOT NULL DEFAULT false;
+
+        -- TABLE: GoogleCalendarTokens
+        CREATE TABLE IF NOT EXISTS "GoogleCalendarTokens" (
+            "Id"              uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"         uuid         NOT NULL UNIQUE,
+            "AccessToken"     text         NOT NULL,
+            "RefreshToken"    text,
+            "ExpiresAtUtc"    timestamptz  NOT NULL,
+            "CalendarId"      varchar(200) NOT NULL DEFAULT 'primary',
+            "CalendarName"    varchar(200),
+            "ConnectedAtUtc"  timestamptz  NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_gcaltokens_salon ON "GoogleCalendarTokens"("SalonId");
+
+        -- GcalEventId on Appointments
+        ALTER TABLE "Appointments"
+            ADD COLUMN IF NOT EXISTS "GcalEventId" text;
+
+        -- Per-user Google Calendar: UserId + ConnectedEmail on tokens
+        ALTER TABLE "GoogleCalendarTokens"
+            ADD COLUMN IF NOT EXISTS "UserId"         uuid,
+            ADD COLUMN IF NOT EXISTS "ConnectedEmail" varchar(200);
+
+        -- Drop old UNIQUE constraint on SalonId (replaced by partial indexes)
+        DO $$
+        DECLARE v_con text;
+        BEGIN
+            SELECT constraint_name INTO v_con
+            FROM information_schema.table_constraints
+            WHERE table_name = 'GoogleCalendarTokens'
+              AND constraint_type = 'UNIQUE'
+              AND constraint_name LIKE '%SalonId%'
+            LIMIT 1;
+            IF v_con IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE "GoogleCalendarTokens" DROP CONSTRAINT "' || v_con || '"';
+            END IF;
+        END $$;
+
+        -- One salon-level token per salon (UserId IS NULL)
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_gcaltokens_salon_null
+            ON "GoogleCalendarTokens"("SalonId") WHERE "UserId" IS NULL;
+
+        -- One per-user token per (salon, user)
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_gcaltokens_salon_user
+            ON "GoogleCalendarTokens"("SalonId", "UserId") WHERE "UserId" IS NOT NULL;
+
+        -- Stylist's personal calendar event ID on Appointments
+        ALTER TABLE "Appointments"
+            ADD COLUMN IF NOT EXISTS "GcalStylistEventId" text;
+
+        -- ShowOnWebsite on Stylists (web sitesinde göster / gizle)
+        ALTER TABLE "Stylists"
+            ADD COLUMN IF NOT EXISTS "ShowOnWebsite" boolean NOT NULL DEFAULT true;
+
+        -- TABLE: SupportMessages (new message-based support system)
+        CREATE TABLE IF NOT EXISTS "SupportMessages" (
+            "Id"           uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "TicketId"     uuid        NOT NULL REFERENCES "SupportTickets"("Id") ON DELETE CASCADE,
+            "Body"         text        NOT NULL DEFAULT '',
+            "IsFromAdmin"  boolean     NOT NULL DEFAULT false,
+            "AuthorName"   varchar(200) NOT NULL DEFAULT '',
+            "CreatedAtUtc" timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_supportmessages_ticket ON "SupportMessages"("TicketId");
+
+        -- ALTER: SupportTickets — add new columns for richer support system
+        ALTER TABLE "SupportTickets"
+            ADD COLUMN IF NOT EXISTS "UserId"      uuid        NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+            ADD COLUMN IF NOT EXISTS "UserName"    varchar(200) NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS "PageContext" text;
+
+        -- TABLE: Announcements (advanced, with recurrence & targeting)
+        CREATE TABLE IF NOT EXISTS "Announcements" (
+            "Id"                  uuid         PRIMARY KEY,
+            "Title"               varchar(500) NOT NULL DEFAULT '',
+            "Body"                text,
+            "Type"                varchar(50)  NOT NULL DEFAULT 'info',
+            "Priority"            int          NOT NULL DEFAULT 0,
+            "IsPublished"         boolean      NOT NULL DEFAULT false,
+            "StartsAtUtc"         timestamptz,
+            "ExpiresAtUtc"        timestamptz,
+            "ExcludedSalonIds"    text         NOT NULL DEFAULT '[]',
+            "IsRecurring"         boolean      NOT NULL DEFAULT false,
+            "RecurrenceType"      varchar(50),
+            "RecurrenceDays"      varchar(100),
+            "RecurrenceStartTime" varchar(10),
+            "RecurrenceEndTime"   varchar(10),
+            "ReadCount"           int          NOT NULL DEFAULT 0,
+            "CreatedAtUtc"        timestamptz  NOT NULL DEFAULT now(),
+            "UpdatedAtUtc"        timestamptz  NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_announcements_published ON "Announcements"("IsPublished");
+        CREATE INDEX IF NOT EXISTS ix_announcements_priority  ON "Announcements"("Priority" DESC);
+
+        -- MfaEnabled on OrganizationSettings
+        ALTER TABLE "OrganizationSettings"
+            ADD COLUMN IF NOT EXISTS "MfaEnabled" boolean NOT NULL DEFAULT false;
+
+        -- Reminder tracking on Appointments
+        ALTER TABLE "Appointments"
+            ADD COLUMN IF NOT EXISTS "Reminder24hSentAt" timestamptz,
+            ADD COLUMN IF NOT EXISTS "Reminder1hSentAt"  timestamptz;
+
+        -- NotificationConfig on OrganizationSettings (JSON blob for notification preferences)
+        ALTER TABLE "OrganizationSettings"
+            ADD COLUMN IF NOT EXISTS "NotificationConfig" text;
+
+        -- TABLE: StylistServices (stilist-hizmet ilişkisi)
+        CREATE TABLE IF NOT EXISTS "StylistServices" (
+            "StylistId" uuid NOT NULL,
+            "ServiceId" uuid NOT NULL,
+            CONSTRAINT "PK_StylistServices" PRIMARY KEY ("StylistId", "ServiceId"),
+            CONSTRAINT fk_stylistservices_stylist
+                FOREIGN KEY ("StylistId") REFERENCES "Stylists"("Id") ON DELETE CASCADE,
+            CONSTRAINT fk_stylistservices_service
+                FOREIGN KEY ("ServiceId") REFERENCES "Services"("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_stylistservices_stylist ON "StylistServices"("StylistId");
+
+        -- TABLE: PasswordResetTokens
+        CREATE TABLE IF NOT EXISTS "PasswordResetTokens" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "UserId"       uuid         NOT NULL,
+            "Token"        text         NOT NULL,
+            "ExpiresAtUtc" timestamptz  NOT NULL,
+            "UsedAtUtc"    timestamptz,
+            "CreatedAtUtc" timestamptz  NOT NULL DEFAULT now(),
+            CONSTRAINT fk_pwdreset_user FOREIGN KEY ("UserId") REFERENCES "Users"("Id") ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_pwdreset_token ON "PasswordResetTokens"("Token");
+        CREATE INDEX IF NOT EXISTS ix_pwdreset_user ON "PasswordResetTokens"("UserId");
+
+        -- TABLE: KioskPlaylists
+        CREATE TABLE IF NOT EXISTS "KioskPlaylists" (
+            "Id"           uuid         NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"      uuid         NOT NULL,
+            "Name"         text         NOT NULL DEFAULT '',
+            "CreatedAtUtc" timestamptz  NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_kioskplaylists_salon ON "KioskPlaylists"("SalonId");
+
+        -- TABLE: KioskSlides
+        CREATE TABLE IF NOT EXISTS "KioskSlides" (
+            "Id"              uuid  NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "PlaylistId"      uuid  NOT NULL,
+            "SortOrder"       int   NOT NULL DEFAULT 0,
+            "Type"            text  NOT NULL DEFAULT 'html',
+            "Content"         text  NOT NULL DEFAULT '',
+            "DurationSeconds" int   NOT NULL DEFAULT 10,
+            "Title"           text,
+            CONSTRAINT fk_kioskslides_playlist FOREIGN KEY ("PlaylistId") REFERENCES "KioskPlaylists"("Id") ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS ix_kioskslides_playlist ON "KioskSlides"("PlaylistId");
+
+        -- TABLE: KioskMediaItems
+        CREATE TABLE IF NOT EXISTS "KioskMediaItems" (
+            "Id"            uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "SalonId"       uuid        NOT NULL,
+            "FileName"      text        NOT NULL DEFAULT '',
+            "OriginalName"  text        NOT NULL DEFAULT '',
+            "FileUrl"       text        NOT NULL DEFAULT '',
+            "MimeType"      text        NOT NULL DEFAULT '',
+            "FileSizeBytes" bigint      NOT NULL DEFAULT 0,
+            "UploadedAtUtc" timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS ix_kioskmediaitems_salon ON "KioskMediaItems"("SalonId");
+
+        -- KioskCodes: new columns for playlist + layout
+        ALTER TABLE "KioskCodes" ADD COLUMN IF NOT EXISTS "DisplayLayout" text NOT NULL DEFAULT 'sidebar';
+        ALTER TABLE "KioskCodes" ADD COLUMN IF NOT EXISTS "PlaylistId"    uuid REFERENCES "KioskPlaylists"("Id") ON DELETE SET NULL;
+
+        -- TABLE: KioskPairingRequests
+        CREATE TABLE IF NOT EXISTS "KioskPairingRequests" (
+            "Id"            uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "PairingCode"   text        NOT NULL DEFAULT '',
+            "CreatedAtUtc"  timestamptz NOT NULL DEFAULT now(),
+            "ExpiresAtUtc"  timestamptz NOT NULL DEFAULT now(),
+            "IsAccepted"    boolean     NOT NULL DEFAULT false,
+            "KioskToken"    text,
+            "SalonId"       uuid,
+            "SalonName"     text,
+            "DisplayLayout" text        NOT NULL DEFAULT 'sidebar',
+            "PlaylistId"    uuid,
+            "Label"         text
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_kioskpairingrequests_code ON "KioskPairingRequests"("PairingCode");
+
+        -- TABLE: UserSalonAccesses (multi-location salon navigation)
+        CREATE TABLE IF NOT EXISTS "UserSalonAccesses" (
+            "Id"           uuid        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+            "UserId"       uuid        NOT NULL REFERENCES "Users"("Id") ON DELETE CASCADE,
+            "SalonId"      uuid        NOT NULL REFERENCES "Salons"("Id") ON DELETE CASCADE,
+            "GrantedAtUtc" timestamptz NOT NULL DEFAULT now(),
+            UNIQUE ("UserId", "SalonId")
+        );
+        CREATE INDEX IF NOT EXISTS ix_usersalonaccesses_user  ON "UserSalonAccesses"("UserId");
+        CREATE INDEX IF NOT EXISTS ix_usersalonaccesses_salon ON "UserSalonAccesses"("SalonId");
+
+        -- Invoices.CustomerId → nullable (POS-linked invoices may not have a customer)
+        ALTER TABLE "Invoices" ALTER COLUMN "CustomerId" DROP NOT NULL;
+
+        -- Invoices: link to POS transaction
+        ALTER TABLE "Invoices" ADD COLUMN IF NOT EXISTS "PosTransactionId" uuid REFERENCES "PosTransactions"("Id") ON DELETE SET NULL;
+        CREATE INDEX IF NOT EXISTS ix_invoices_postransaction ON "Invoices"("PosTransactionId");
+
+        -- ScheduledReports: wizard filters + send hour
+        ALTER TABLE "ScheduledReports" ADD COLUMN IF NOT EXISTS "FiltersJson" text;
+        ALTER TABLE "ScheduledReports" ADD COLUMN IF NOT EXISTS "SendHour" integer NOT NULL DEFAULT 8;
+
+        -- WaitlistEntries: public anonymous sign-up support
+        ALTER TABLE "WaitlistEntries" ALTER COLUMN "CustomerId" DROP NOT NULL;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerName"      text NOT NULL DEFAULT '';
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerPhone"     text;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerEmail"     text;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "Source"            text NOT NULL DEFAULT 'panel';
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "PreferredTimeFrom" text;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "PreferredTimeTo"   text;
+
+        -- WaitlistEntries: separate first/last name for proper customer creation
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerFirstName" text;
+        ALTER TABLE "WaitlistEntries" ADD COLUMN IF NOT EXISTS "CustomerLastName"  text;
+
         """;
 }

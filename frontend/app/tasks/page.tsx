@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 
 /* ── Types ─────────────────────────────────────────────────────── */
 type Task = {
@@ -12,7 +13,7 @@ type Task = {
   dueDate?: string; assigneeId?: string; assigneeName?: string;
   createdAt?: string;
 };
-type User = { id: string; firstName: string; lastName: string };
+type User = { id: string; fullName: string };
 
 /* ── Constants ──────────────────────────────────────────────────── */
 const COLUMNS: { key: Task["status"]; label: string; color: string; bg: string }[] = [
@@ -30,6 +31,7 @@ const PRIORITY_META: Record<string, { label: string; color: string; bg: string }
 
 /* ── Page ───────────────────────────────────────────────────────── */
 export default function TasksPage() {
+  const { confirm } = useToast();
   const [tasks,     setTasks]     = useState<Task[]>([]);
   const [users,     setUsers]     = useState<User[]>([]);
   const [loading,   setLoading]   = useState(false);
@@ -58,7 +60,8 @@ export default function TasksPage() {
   };
 
   const del = async (id: string) => {
-    if (!confirm("Bu görevi silmek istediğinizden emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu görevi silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/Tasks/${id}`, { method: "DELETE" });
     setTasks(prev => prev.filter(t => t.id !== id));
   };
@@ -249,7 +252,7 @@ function TaskModal({ task, users, onClose, onSaved }: { task: Task | null; users
               <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Atanan Kişi</label>
               <select value={form.assigneeId} onChange={set("assigneeId")} style={s}>
                 <option value="">Seçiniz</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
               </select>
             </div>
           </div>

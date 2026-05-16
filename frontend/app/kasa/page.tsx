@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 type Stylist     = { id: string; fullName: string; specialty?: string };
 type Service     = { id: string; name: string; category: string; price: number };
 type StockItem   = { id: string; name: string; category?: string; salePrice: number; staffBonusPct: number; quantity: number; unit?: string };
 type BankAccount = { id: string; bankName: string; accountName: string; isActive: boolean };
-
 type Customer    = { id: string; fullName: string; phone?: string };
 
 type AdisyonItem = {
@@ -35,7 +36,7 @@ type Adisyon = {
 
 type MonthlySummary = {
   year: number; month: number;
-  totalRevenue: number; totalCash: number; totalCard: number; txCount: number;
+  totalRevenue: number; totalCash: number; totalCard: number; totalBank?: number; txCount: number;
   unassignedTotal: number; unassignedCount: number;
   stylists: {
     stylistId: string; stylistName: string; commissionRate: number;
@@ -49,12 +50,24 @@ type Expense = {
   paymentMethod: string; createdAtUtc: string;
 };
 
+type TodayStats = {
+  totalRevenue: number; totalCash: number; totalCard: number; totalBank: number; txCount: number;
+  session: { id: string; openedAtUtc: string; openingBalance: number } | null;
+};
+
+type HistoryItem = {
+  id: string; customerName: string | null; total: number; paymentMethod: string;
+  cashAmount: number; cardAmount: number; discountAmount: number; status: string;
+  createdAtUtc: string; stylistName: string | null; itemCount: number;
+};
+
 /* ── Helpers ─────────────────────────────────────────────────────────── */
 const fmt  = (n: number) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const uid  = () => Math.random().toString(36).slice(2, 10);
 const STORAGE_KEY = "xcut_adisyons_v2";
 const MONTHS      = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
 const EXP_CATS    = ["Genel","Temizlik","Kira","Elektrik/Su","Malzeme","Personel","Kargo","Diğer"];
+const PM_LABELS: Record<string, string> = { cash: "💵 Nakit", card: "💳 Kart", mixed: "↔ Karma", bank: "🏦 Havale" };
 
 function loadAdisyons(): Adisyon[] {
   if (typeof window === "undefined") return [];
@@ -72,13 +85,23 @@ function adisyonTotal(a: Adisyon): number {
 
 /* ══════════════════════════════════════════════════════════════════════ */
 export default function KasaPage() {
-  const [tab,          setTab]          = useState<"kasa"|"masraf"|"ay-sonu">("kasa");
+  const { toast, confirm } = useToast();
+  const isMobile = useIsMobile();
+  const [tab,          setTab]          = useState<"kasa"|"gecmis"|"masraf"|"ay-sonu">("kasa");
   const [stylists,     setStylists]     = useState<Stylist[]>([]);
   const [services,     setServices]     = useState<Service[]>([]);
   const [stockItems,   setStockItems]   = useState<StockItem[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [customers,    setCustomers]    = useState<Customer[]>([]);
   const [loading,      setLoading]      = useState(true);
+  const [todayStats,   setTodayStats]   = useState<TodayStats | null>(null);
+  const [openingBal,   setOpeningBal]   = useState("0");
+  const [sessionOp,    setSessionOp]    = useState<"open"|"close"|null>(null);
+
+  const loadToday = useCallback(async () => {
+    const r = await apiFetch("/Pos/today");
+    if (r.ok) setTodayStats(await r.json());
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -94,18 +117,82 @@ export default function KasaPage() {
       if (stockRes.ok) { const d = await stockRes.json(); setStockItems(Array.isArray(d) ? d : (d.items ?? [])); }
       setLoading(false);
     })();
-  }, []);
+    loadToday();
+  }, [loadToday]);
+
+  const openSession = async () => {
+    const bal = parseFloat(openingBal) || 0;
+    const r = await apiFetch("/Pos/session/open", { method: "POST", body: JSON.stringify({ openingBalance: bal, notes: null }) });
+    if (r.ok) { toast.success("Kasa oturumu açıldı."); setSessionOp(null); loadToday(); }
+    else { const d = await r.json().catch(() => ({})); toast.error(d.message ?? "Oturum açılamadı."); }
+  };
+
+  const closeSession = async () => {
+    if (!todayStats?.session) return;
+    const ok = await confirm({ message: "Kasa oturumunu kapatmak istiyor musunuz?", danger: false });
+    if (!ok) return;
+    const r = await apiFetch(`/Pos/session/${todayStats.session.id}/close`, {
+      method: "POST", body: JSON.stringify({ closingBalance: null, notes: null }),
+    });
+    if (r.ok) { toast.success("Kasa oturumu kapatıldı."); setSessionOp(null); loadToday(); }
+    else toast.error("Oturum kapatılamadı.");
+  };
+
+  const session = todayStats?.session ?? null;
 
   return (
     <AppShell title="Kasa">
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid #f1f5f9" }}>
-        {([["kasa","🧾 Adisyon"],["masraf","💸 Masraf"],["ay-sonu","📊 Ay Sonu"]] as const).map(([k, lbl]) => (
+
+      {/* ── Today stats bar ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {([
+          ["Bugün Ciro",  `₺${fmt(todayStats?.totalRevenue ?? 0)}`, "#7c3aed"],
+          ["Nakit",       `₺${fmt(todayStats?.totalCash    ?? 0)}`, "#16a34a"],
+          ["Kart",        `₺${fmt(todayStats?.totalCard    ?? 0)}`, "#2563eb"],
+          ["İşlem",       (todayStats?.txCount ?? 0).toString(),    "#d97706"],
+        ] as [string, string, string][]).map(([lbl, val, color]) => (
+          <div key={lbl} style={{ background: "#fff", borderRadius: 12, padding: "14px 16px", border: "1px solid #f1f5f9", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 4 }}>{lbl}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color }}>{val}</div>
+          </div>
+        ))}
+
+        {/* Session card */}
+        <div style={{ background: session ? "#f0fdf4" : "#fef9f0", borderRadius: 12, padding: "14px 16px", border: `1px solid ${session ? "#bbf7d0" : "#fed7aa"}` }}>
+          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 4 }}>Kasa Oturumu</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: session ? "#15803d" : "#d97706", marginBottom: 6 }}>
+            {session
+              ? `Açık · ${new Date(session.openedAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
+              : "Kapalı"}
+          </div>
+          {sessionOp === "open" ? (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <input type="number" placeholder="Açılış ₺" value={openingBal}
+                onChange={e => setOpeningBal(e.target.value)}
+                style={{ width: 76, padding: "4px 7px", borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12 }} />
+              <button onClick={openSession} style={btnSm("#16a34a")}>Aç</button>
+              <button onClick={() => setSessionOp(null)} style={btnSm("#94a3b8")}>×</button>
+            </div>
+          ) : (
+            <button onClick={() => session ? closeSession() : setSessionOp("open")} style={{
+              fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+              background: session ? "#fee2e2" : "#dcfce7", color: session ? "#dc2626" : "#16a34a",
+            }}>
+              {session ? "Oturumu Kapat" : "Oturum Aç"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid #f1f5f9", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+        {([["kasa","🧾 Adisyon"],["gecmis","📋 Geçmiş"],["masraf","💸 Masraf"],["ay-sonu","📊 Ay Sonu"]] as const).map(([k, lbl]) => (
           <button key={k} onClick={() => setTab(k)} style={{
-            padding: "10px 20px", border: "none", background: "none", cursor: "pointer",
-            fontWeight: 700, fontSize: 14,
+            padding: "10px 16px", border: "none", background: "none", cursor: "pointer",
+            fontWeight: 700, fontSize: isMobile ? 13 : 14, whiteSpace: "nowrap",
             color: tab === k ? "#7c3aed" : "#64748b",
             borderBottom: tab === k ? "2px solid #7c3aed" : "2px solid transparent",
-            marginBottom: -2,
+            marginBottom: -2, flexShrink: 0,
           }}>{lbl}</button>
         ))}
       </div>
@@ -113,7 +200,8 @@ export default function KasaPage() {
       {loading && tab === "kasa" && (
         <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>
       )}
-      {!loading && tab === "kasa"    && <AdisyonTab stylists={stylists} services={services} stockItems={stockItems} bankAccounts={bankAccounts} customers={customers} />}
+      {!loading && tab === "kasa"    && <AdisyonTab stylists={stylists} services={services} stockItems={stockItems} bankAccounts={bankAccounts} customers={customers} onCheckout={loadToday} isMobile={isMobile} />}
+      {           tab === "gecmis"   && <HistoryTab />}
       {           tab === "masraf"   && <MasrafPanel bankAccounts={bankAccounts} />}
       {           tab === "ay-sonu"  && <AySonuPanel stylists={stylists} />}
     </AppShell>
@@ -123,18 +211,18 @@ export default function KasaPage() {
 /* ════════════════════════════════════════════════════════════════════
    ADİSYON TAB
    ════════════════════════════════════════════════════════════════════ */
-function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }: {
-  stylists: Stylist[]; services: Service[]; stockItems: StockItem[]; bankAccounts: BankAccount[]; customers: Customer[];
+function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers, onCheckout, isMobile }: {
+  stylists: Stylist[]; services: Service[]; stockItems: StockItem[]; bankAccounts: BankAccount[];
+  customers: Customer[]; onCheckout: () => void; isMobile?: boolean;
 }) {
+  const { toast, confirm } = useToast();
   const [adisyons,      setAdisyons]      = useState<Adisyon[]>(() => loadAdisyons());
   const [openId,        setOpenId]        = useState<string | null>(null);
   const [activeStylist, setActiveStylist] = useState<string>(() => stylists[0]?.id ?? "");
   const [newCustomer,   setNewCustomer]   = useState<Customer | null>(null);
 
-  /* persist to localStorage on every change */
   useEffect(() => { saveAdisyons(adisyons); }, [adisyons]);
 
-  /* select first stylist when they load; honour kasaya-aktar prefill */
   useEffect(() => {
     if (stylists.length === 0) return;
     const raw = localStorage.getItem("xcut_pos_prefill");
@@ -142,7 +230,7 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
       try {
         const p = JSON.parse(raw);
         localStorage.removeItem("xcut_pos_prefill");
-        const targetStylist = p.stylistId && stylists.find(s => s.id === p.stylistId)
+        const targetStylist = p.stylistId && stylists.find((s: Stylist) => s.id === p.stylistId)
           ? p.stylistId
           : stylists[0].id;
         setActiveStylist(targetStylist);
@@ -155,22 +243,31 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
             customerName: p.customerFullName,
             items: (p.suggestedItems ?? [])
               .filter((i: { name?: string }) => i.name)
-              .map((i: { serviceId?: string; name: string; unitPrice: number; quantity: number }) => {
-                const matched = services.find(s => s.id === i.serviceId || s.name === i.name);
-                return {
-                  id:        uid(),
-                  serviceId: i.serviceId ?? undefined,
-                  name:      i.name,
-                  unitPrice: i.unitPrice > 0 ? i.unitPrice : (matched?.price ?? 0),
-                  quantity:  i.quantity ?? 1,
-                };
+              .flatMap((i: { serviceId?: string; name: string; unitPrice: number; quantity: number }) => {
+                // Split comma-separated free-text service names into separate line items
+                const names = (!i.serviceId && i.name.includes(","))
+                  ? i.name.split(",").map((n: string) => n.trim()).filter(Boolean)
+                  : [i.name];
+                return names.map((name: string, idx: number) => {
+                  const norm = (s: string) => s.toLowerCase().trim();
+                  const matched = services.find(s =>
+                    (idx === 0 && i.serviceId && s.id === i.serviceId) ||
+                    norm(s.name) === norm(name)
+                  );
+                  return {
+                    id:        uid(),
+                    serviceId: matched?.id ?? (names.length === 1 ? (i.serviceId ?? undefined) : undefined),
+                    name,
+                    unitPrice: (names.length === 1 && i.unitPrice > 0) ? i.unitPrice : (matched?.price ?? 0),
+                    quantity:  i.quantity ?? 1,
+                  };
+                });
               }),
             discountType:  "none",
             discountValue: 0,
             createdAt:     new Date().toISOString(),
           };
           setAdisyons(prev => {
-            // Remove any existing open adisyon for same customer+stylist to avoid duplicates
             const filtered = prev.filter(a =>
               !(a.stylistId === targetStylist &&
                 (a.customerId === p.customerId || a.customerName === p.customerFullName))
@@ -187,7 +284,6 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
     if (!activeStylist) setActiveStylist(stylists[0].id);
   }, [stylists, services]);
 
-  /* ── mutations ── */
   const createAdisyon = () => {
     if (!newCustomer) return;
     const a: Adisyon = {
@@ -206,8 +302,9 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
     setAdisyons(prev => prev.map(a => a.id === id ? fn(a) : a));
   };
 
-  const deleteAdisyon = (id: string) => {
-    if (!confirm("Bu adisyonu silmek istediğinizden emin misiniz?")) return;
+  const deleteAdisyon = async (id: string) => {
+    const ok = await confirm({ message: "Bu adisyonu silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     setAdisyons(prev => prev.filter(a => a.id !== id));
     if (openId === id) setOpenId(null);
   };
@@ -217,11 +314,9 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
     setOpenId(null);
   };
 
-  /* ── derived ── */
   const openAdisyon = adisyons.find(a => a.id === openId) ?? null;
   const stylistAdisyons = adisyons.filter(a => a.stylistId === activeStylist);
 
-  /* ── detail view ── */
   if (openAdisyon) {
     return (
       <AdisyonDetail
@@ -232,55 +327,146 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
         bankAccounts={bankAccounts}
         onBack={() => setOpenId(null)}
         onUpdate={fn => updateAdisyon(openAdisyon.id, fn)}
-        onCheckoutDone={() => closeAdisyon(openAdisyon.id)}
+        onCheckoutDone={() => { closeAdisyon(openAdisyon.id); onCheckout(); }}
         onDelete={() => deleteAdisyon(openAdisyon.id)}
+        isMobile={isMobile}
       />
     );
   }
 
-  /* ── list view ── */
+  /* ── Stylist buttons (shared between mobile chips and desktop sidebar) ── */
+  const stylistButtons = stylists.map(s => {
+    const cnt   = adisyons.filter(a => a.stylistId === s.id).length;
+    const total = adisyons.filter(a => a.stylistId === s.id).reduce((sum, a) => sum + adisyonTotal(a), 0);
+    const active = s.id === activeStylist;
+    return (
+      <button key={s.id} onClick={() => setActiveStylist(s.id)} style={isMobile ? {
+        padding: "10px 14px", borderRadius: 10, flexShrink: 0,
+        border: `2px solid ${active ? "#7c3aed" : "#e9d5ff"}`,
+        background: active ? "#f5f3ff" : "#fff",
+        cursor: "pointer", textAlign: "left", transition: "all 0.12s",
+        display: "flex", alignItems: "center", gap: 8,
+      } : {
+        padding: "12px 14px", borderRadius: 12,
+        border: `2px solid ${active ? "#7c3aed" : "#e9d5ff"}`,
+        background: active ? "#f5f3ff" : "#fff",
+        cursor: "pointer", textAlign: "left", transition: "all 0.12s",
+      }}>
+        {isMobile ? (
+          <>
+            <span style={{ fontWeight: 700, fontSize: 13, color: active ? "#6d28d9" : "#0f172a", whiteSpace: "nowrap" }}>{s.fullName}</span>
+            {cnt > 0 && <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 7px", borderRadius: 999, background: "#7c3aed", color: "#fff" }}>{cnt}</span>}
+          </>
+        ) : (
+          <>
+            <div style={{ fontWeight: 700, fontSize: 13, color: active ? "#6d28d9" : "#0f172a" }}>{s.fullName}</div>
+            {s.specialty && <div style={{ fontSize: 11, color: "#94a3b8" }}>{s.specialty}</div>}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 13, fontWeight: 900, color: total > 0 ? "#7c3aed" : "#cbd5e1" }}>₺{fmt(total)}</span>
+              {cnt > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 7px", borderRadius: 999, background: "#7c3aed", color: "#fff" }}>
+                  {cnt} açık
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </button>
+    );
+  });
+
+  if (isMobile) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Mobile: horizontal stylist chips */}
+        <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4 }}>
+          <div style={{ display: "flex", gap: 8, minWidth: "max-content" }}>
+            {stylistButtons}
+          </div>
+        </div>
+        {/* Mobile: adisyon cards + new adisyon */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <CustomerPicker customers={customers} selected={newCustomer} onSelect={setNewCustomer} />
+            </div>
+            <button
+              onClick={createAdisyon}
+              disabled={!activeStylist || !newCustomer}
+              style={{
+                padding: "10px 14px", borderRadius: 10, border: "none", flexShrink: 0,
+                background: activeStylist && newCustomer ? "#7c3aed" : "#e9d5ff",
+                color: activeStylist && newCustomer ? "#fff" : "#a78bfa",
+                fontWeight: 800, fontSize: 13, cursor: activeStylist && newCustomer ? "pointer" : "not-allowed",
+              }}
+            >
+              + Yeni
+            </button>
+          </div>
+          {stylistAdisyons.length === 0 ? (
+            <div style={{ background: "#f8fafc", borderRadius: 16, padding: "40px 20px", textAlign: "center", border: "2px dashed #e9d5ff" }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🪑</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "#64748b", marginBottom: 5 }}>
+                {stylists.find(s => s.id === activeStylist)?.fullName ?? "Bu stilist"} için açık adisyon yok
+              </div>
+              <div style={{ fontSize: 13, color: "#94a3b8" }}>Yukarıdan yeni adisyon açın</div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+              {stylistAdisyons.map(a => {
+                const total = adisyonTotal(a);
+                const openedAt = new Date(a.createdAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+                return (
+                  <div key={a.id} style={{ background: "#fff", borderRadius: 16, border: "2px solid #e9d5ff", padding: 18, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 2px 8px rgba(124,58,237,0.06)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 16 }}>{a.customerName}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Açılış: {openedAt}</div>
+                      </div>
+                      <button onClick={() => deleteAdisyon(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#cbd5e1", fontSize: 18, lineHeight: 1 }}>×</button>
+                    </div>
+                    {a.items.length === 0 ? (
+                      <div style={{ fontSize: 13, color: "#94a3b8", textAlign: "center", padding: "8px 0" }}>Henüz kalem yok</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {a.items.slice(0, 3).map(item => (
+                          <div key={item.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b" }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{item.quantity > 1 ? `${item.quantity}× ` : ""}{item.name}</span>
+                            <span style={{ fontWeight: 700, color: "#7c3aed", marginLeft: 8 }}>₺{fmt(item.unitPrice * item.quantity)}</span>
+                          </div>
+                        ))}
+                        {a.items.length > 3 && <div style={{ fontSize: 11, color: "#94a3b8" }}>+{a.items.length - 3} kalem daha...</div>}
+                      </div>
+                    )}
+                    <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 18, fontWeight: 900, color: "#7c3aed" }}>₺{fmt(total)}</span>
+                      <button onClick={() => setOpenId(a.id)} style={{ padding: "8px 18px", borderRadius: 9, border: "none", background: "linear-gradient(135deg, #7c3aed, #a21caf)", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+                        Aç →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20, minHeight: 500 }}>
 
       {/* Stilist sidebar */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>Stilistler</div>
-        {stylists.map(s => {
-          const cnt   = adisyons.filter(a => a.stylistId === s.id).length;
-          const total = adisyons.filter(a => a.stylistId === s.id).reduce((sum, a) => sum + adisyonTotal(a), 0);
-          const active = s.id === activeStylist;
-          return (
-            <button key={s.id} onClick={() => setActiveStylist(s.id)} style={{
-              padding: "12px 14px", borderRadius: 12,
-              border: `2px solid ${active ? "#7c3aed" : "#e9d5ff"}`,
-              background: active ? "#f5f3ff" : "#fff",
-              cursor: "pointer", textAlign: "left", transition: "all 0.12s",
-            }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: active ? "#6d28d9" : "#0f172a" }}>{s.fullName}</div>
-              {s.specialty && <div style={{ fontSize: 11, color: "#94a3b8" }}>{s.specialty}</div>}
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 13, fontWeight: 900, color: total > 0 ? "#7c3aed" : "#cbd5e1" }}>₺{fmt(total)}</span>
-                {cnt > 0 && (
-                  <span style={{ fontSize: 10, fontWeight: 800, padding: "1px 7px", borderRadius: 999, background: "#7c3aed", color: "#fff" }}>
-                    {cnt} açık
-                  </span>
-                )}
-              </div>
-            </button>
-          );
-        })}
+        {stylistButtons}
       </div>
 
       {/* Adisyon cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-        {/* New adisyon form */}
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <CustomerPicker
-            customers={customers}
-            selected={newCustomer}
-            onSelect={setNewCustomer}
-          />
+          <CustomerPicker customers={customers} selected={newCustomer} onSelect={setNewCustomer} />
           <button
             onClick={createAdisyon}
             disabled={!activeStylist || !newCustomer}
@@ -296,7 +482,6 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers }:
           {!activeStylist && <span style={{ fontSize: 12, color: "#94a3b8", paddingTop: 10 }}>Önce stilist seçin</span>}
         </div>
 
-        {/* Cards grid */}
         {stylistAdisyons.length === 0 ? (
           <div style={{ background: "#f8fafc", borderRadius: 16, padding: "48px 24px", textAlign: "center", border: "2px dashed #e9d5ff" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🪑</div>
@@ -383,7 +568,7 @@ function CustomerPicker({ customers, selected, onSelect }: {
 
   if (selected) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid #7c3aed", background: "#faf5ff", width: 280, boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, border: "2px solid #7c3aed", background: "#faf5ff", width: "100%", boxSizing: "border-box" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.fullName}</div>
           {selected.phone && <div style={{ fontSize: 11, color: "#94a3b8" }}>{selected.phone}</div>}
@@ -394,7 +579,7 @@ function CustomerPicker({ customers, selected, onSelect }: {
   }
 
   return (
-    <div style={{ position: "relative", width: 280 }}>
+    <div style={{ position: "relative", width: "100%" }}>
       <input
         value={query}
         onChange={e => { setQuery(e.target.value); setOpen(true); }}
@@ -428,7 +613,7 @@ function CustomerPicker({ customers, selected, onSelect }: {
 /* ════════════════════════════════════════════════════════════════════
    ADİSYON DETAIL
    ════════════════════════════════════════════════════════════════════ */
-function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, onBack, onUpdate, onCheckoutDone, onDelete }: {
+function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, onBack, onUpdate, onCheckoutDone, onDelete, isMobile }: {
   adisyon:        Adisyon;
   stylist:        Stylist;
   services:       Service[];
@@ -438,24 +623,30 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
   onUpdate:       (fn: (prev: Adisyon) => Adisyon) => void;
   onCheckoutDone: () => void;
   onDelete:       () => void;
+  isMobile?:      boolean;
 }) {
+  const { toast } = useToast();
   const [search,      setSearch]      = useState("");
   const [catalogTab,  setCatalogTab]  = useState<"services"|"stock">("services");
+  const [mobilePanel, setMobilePanel] = useState<"catalog"|"cart">("catalog");
   const [showPay,     setShowPay]     = useState(false);
   const [payMethod,  setPayMethod]  = useState<"cash"|"card"|"mixed"|"bank">("cash");
   const [cashAmt,    setCashAmt]    = useState(0);
   const [cardAmt,    setCardAmt]    = useState(0);
   const [bankId,     setBankId]     = useState("");
   const [processing, setProcessing] = useState(false);
+  const [receiptModal, setReceiptModal] = useState<{
+    total: number; discountAmount: number; payMethodLabel: string;
+    customerEmail: string; salonName: string; sending: boolean;
+    invoiceId?: string;
+  } | null>(null);
 
-  /* ── catalog ── */
   const filtered = services.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.category.toLowerCase().includes(search.toLowerCase())
   );
   const cats = Array.from(new Set(filtered.map(s => s.category)));
 
-  /* ── item mutations ── */
   const addService = (svc: Service) => {
     onUpdate(prev => ({
       ...prev,
@@ -488,13 +679,11 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
     onUpdate(prev => ({ ...prev, items: prev.items.filter(i => i.id !== id) }));
   };
 
-  /* ── totals ── */
   const subtotal = adisyon.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
   const discountAmount = adisyon.discountType === "percent" ? Math.round(subtotal * adisyon.discountValue) / 100
     : adisyon.discountType === "fixed" ? Math.min(adisyon.discountValue, subtotal) : 0;
   const total = Math.max(0, subtotal - discountAmount);
 
-  /* ── checkout ── */
   const checkout = async () => {
     setProcessing(true);
     const res = await apiFetch("/Pos/checkout", {
@@ -522,35 +711,136 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
       }),
     });
     setProcessing(false);
-    if (res.ok) { onCheckoutDone(); }
-    else alert("Ödeme alınamadı. Lütfen tekrar deneyin.");
+    if (res.ok) {
+      const data = await res.json();
+      toast.success(`₺${fmt(data.total)} ödeme alındı${adisyon.customerName ? ` — ${adisyon.customerName}` : ""}`);
+
+      // Fetch customer email + salon name, then show receipt modal
+      let customerEmail = "";
+      let salonName = "";
+      try {
+        const [meRes, custRes] = await Promise.all([
+          apiFetch("/Auth/me"),
+          adisyon.customerId ? apiFetch(`/Customers/${adisyon.customerId}`) : Promise.resolve(null),
+        ]);
+        if (meRes.ok) { const me = await meRes.json(); salonName = me.salonName ?? ""; }
+        if (custRes?.ok) { const c = await custRes.json(); customerEmail = c.email ?? ""; }
+      } catch { /* ignore */ }
+
+      const PM_MAP: Record<string, string> = { cash: "Nakit", card: "Kart", mixed: "Karma", bank: "Havale" };
+      setReceiptModal({
+        total: data.total,
+        discountAmount: data.discountAmount ?? 0,
+        payMethodLabel: PM_MAP[payMethod] ?? payMethod,
+        customerEmail,
+        salonName,
+        sending: false,
+        invoiceId: data.invoiceId,
+      });
+    } else {
+      toast.error("Ödeme alınamadı. Lütfen tekrar deneyin.");
+    }
   };
 
   const openedAt = new Date(adisyon.createdAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, height: "calc(100vh - 200px)", minHeight: 560 }}>
+  const sendReceipt = async (email: string) => {
+    if (!email.trim()) { onCheckoutDone(); return; }
+    setReceiptModal(prev => prev ? { ...prev, sending: true } : null);
+    try {
+      await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template: "receipt",
+          to: email.trim(),
+          subject: `${receiptModal!.salonName || "Salon"} — Adisyon`,
+          data: {
+            customerName: adisyon.customerName,
+            salonName: receiptModal!.salonName,
+            total: receiptModal!.total,
+            discountAmount: receiptModal!.discountAmount,
+            paymentMethod: receiptModal!.payMethodLabel,
+            itemsJson: JSON.stringify(adisyon.items.map(i => ({ name: i.name, qty: i.quantity, price: i.unitPrice }))),
+          },
+        }),
+      });
+      toast.success("Adisyon e-posta ile gönderildi.");
+    } catch { toast.error("E-posta gönderilemedi."); }
+    onCheckoutDone();
+  };
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <button onClick={onBack} style={{ padding: "7px 14px", borderRadius: 9, border: "1px solid #e9d5ff", background: "#fff", color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, height: isMobile ? "auto" : "calc(100vh - 260px)", minHeight: isMobile ? 0 : 520 }}>
+
+      {receiptModal && (
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 600 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 601, background: "#fff", borderRadius: 20, padding: 32, width: "min(420px,92vw)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)" }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 44, marginBottom: 8 }}>✅</div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: "#166534", marginBottom: 4 }}>Ödeme Alındı!</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: "#1d4ed8" }}>₺{fmt(receiptModal.total)}</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{receiptModal.payMethodLabel} — {adisyon.customerName}</div>
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: "#344054" }}>Makbuzu e-posta ile gönder</div>
+            <input
+              value={receiptModal.customerEmail}
+              onChange={e => setReceiptModal(prev => prev ? { ...prev, customerEmail: e.target.value } : null)}
+              placeholder="musteri@email.com (isteğe bağlı)"
+              type="email"
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, boxSizing: "border-box", marginBottom: 16, outline: "none" }}
+            />
+            {receiptModal.invoiceId && (
+              <button
+                onClick={() => window.open(`/finance/print/${receiptModal.invoiceId}`, "_blank")}
+                style={{ width: "100%", padding: "10px 0", borderRadius: 10, border: "1px solid #2563eb", background: "#eff6ff", color: "#2563eb", fontWeight: 700, fontSize: 14, cursor: "pointer", marginBottom: 10 }}>
+                🖨 Fatura Yazdır / PDF
+              </button>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setReceiptModal(null); onCheckoutDone(); }}
+                style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#64748b" }}>
+                Atla
+              </button>
+              <button onClick={() => sendReceipt(receiptModal.customerEmail)} disabled={receiptModal.sending}
+                style={{ flex: 2, padding: "11px 0", borderRadius: 10, border: "none", background: receiptModal.sending ? "#a78bfa" : "#7c3aed", color: "#fff", fontWeight: 700, fontSize: 14, cursor: receiptModal.sending ? "not-allowed" : "pointer" }}>
+                {receiptModal.sending ? "Gönderiliyor..." : "📧 Makbuz Gönder"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, flexWrap: "wrap" }}>
+        <button onClick={onBack} style={{ padding: "7px 14px", borderRadius: 9, border: "1px solid #e9d5ff", background: "#fff", color: "#7c3aed", fontWeight: 700, fontSize: 13, cursor: "pointer", flexShrink: 0 }}>
           ← Geri
         </button>
-        <div>
-          <span style={{ fontWeight: 900, fontSize: 17 }}>{adisyon.customerName}</span>
-          <span style={{ color: "#94a3b8", fontSize: 13, marginLeft: 8 }}>— {stylist?.fullName ?? ""} · {openedAt}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontWeight: 900, fontSize: isMobile ? 15 : 17 }}>{adisyon.customerName}</span>
+          {!isMobile && <span style={{ color: "#94a3b8", fontSize: 13, marginLeft: 8 }}>— {stylist?.fullName ?? ""} · {openedAt}</span>}
         </div>
-        <button onClick={onDelete} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 8, border: "1px solid #fee2e2", background: "#fef2f2", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-          Adisyonu İptal Et
+        <button onClick={onDelete} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fee2e2", background: "#fef2f2", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+          {isMobile ? "İptal" : "Adisyonu İptal Et"}
         </button>
       </div>
 
-      {/* Main layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, flex: 1, overflow: "hidden" }}>
+      {/* Mobile panel switcher */}
+      {isMobile && (
+        <div style={{ display: "flex", gap: 0, borderRadius: 10, border: "1px solid #e9d5ff", overflow: "hidden" }}>
+          <button onClick={() => setMobilePanel("catalog")} style={{ flex: 1, padding: "10px 0", border: "none", background: mobilePanel === "catalog" ? "#7c3aed" : "#fff", color: mobilePanel === "catalog" ? "#fff" : "#64748b", fontWeight: 700, fontSize: 13, cursor: "pointer", borderRight: "1px solid #e9d5ff" }}>
+            📋 Katalog
+          </button>
+          <button onClick={() => setMobilePanel("cart")} style={{ flex: 1, padding: "10px 0", border: "none", background: mobilePanel === "cart" ? "#7c3aed" : "#fff", color: mobilePanel === "cart" ? "#fff" : "#64748b", fontWeight: 700, fontSize: 13, cursor: "pointer", position: "relative" }}>
+            🛒 Sepet {adisyon.items.length > 0 && <span style={{ marginLeft: 4, padding: "1px 6px", borderRadius: 999, background: mobilePanel === "cart" ? "rgba(255,255,255,0.3)" : "#7c3aed", color: "#fff", fontSize: 11, fontWeight: 800 }}>{adisyon.items.length}</span>}
+          </button>
+        </div>
+      )}
+
+      <div style={isMobile ? { display: "flex", flexDirection: "column", gap: 16 } : { display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, flex: 1, overflow: "hidden" }}>
 
         {/* Catalog */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
-          {/* Tab toggle */}
+        <div style={{ display: isMobile && mobilePanel === "cart" ? "none" : "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
           <div style={{ display: "flex", gap: 0, borderRadius: 10, border: "1px solid #e9d5ff", overflow: "hidden", flexShrink: 0 }}>
             {(["services","stock"] as const).map((t, i) => (
               <button key={t} onClick={() => setCatalogTab(t)} style={{
@@ -571,7 +861,7 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
             style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, outline: "none" }}
           />
 
-          <div style={{ overflowY: "auto", flex: 1 }}>
+          <div style={{ overflowY: "auto", flex: isMobile ? undefined : 1, maxHeight: isMobile ? "50vh" : undefined }}>
             {catalogTab === "services" ? (
               <>
                 {cats.map(cat => (
@@ -635,9 +925,8 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
         </div>
 
         {/* Adisyon detail panel */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: 18, border: "1px solid #e9d5ff", overflowY: "auto" }}>
+        <div style={{ display: isMobile && mobilePanel === "catalog" ? "none" : "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: 18, border: "1px solid #e9d5ff", overflowY: "auto" }}>
 
-          {/* Items */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ fontWeight: 800, fontSize: 14, color: "#7c3aed" }}>Kalemler</div>
             <button onClick={addCustom} style={{ fontSize: 11, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", border: "1px solid #e9d5ff", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
@@ -783,9 +1072,128 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   GEÇMİŞ TAB
+   ════════════════════════════════════════════════════════════════════ */
+function HistoryTab() {
+  const [items,    setItems]    = useState<HistoryItem[]>([]);
+  const [total,    setTotal]    = useState(0);
+  const [page,     setPage]     = useState(1);
+  const [loading,  setLoading]  = useState(false);
+  const [search,   setSearch]   = useState("");
+  const [pmFilter, setPmFilter] = useState("");
+  const PAGE_SIZE = 20;
+
+  const load = useCallback(async (p: number) => {
+    setLoading(true);
+    const r = await apiFetch(`/Pos/history?page=${p}&pageSize=${PAGE_SIZE}`);
+    if (r.ok) { const d = await r.json(); setItems(d.items); setTotal(d.total); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(page); }, [load, page]);
+
+  const filtered = items.filter(item => {
+    const matchSearch = !search ||
+      (item.customerName ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (item.stylistName  ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchPm = !pmFilter || item.paymentMethod === pmFilter;
+    return matchSearch && matchPm;
+  });
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Müşteri / stilist ara..."
+          style={{ ...inputSt, width: 240 }} />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {(["","cash","card","mixed","bank"] as const).map(pm => (
+            <button key={pm} onClick={() => setPmFilter(pm)} style={{
+              padding: "7px 12px", borderRadius: 8, border: "1px solid", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              borderColor: pmFilter === pm ? "#7c3aed" : "#e2e8f0",
+              background: pmFilter === pm ? "#7c3aed" : "#fff",
+              color: pmFilter === pm ? "#fff" : "#64748b",
+            }}>
+              {pm === "" ? "Tümü" : PM_LABELS[pm] ?? pm}
+            </button>
+          ))}
+        </div>
+        <div style={{ marginLeft: "auto", fontSize: 13, color: "#94a3b8" }}>{total} işlem</div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", background: "#f8fafc", borderRadius: 16, border: "2px dashed #e9d5ff" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+          <div style={{ fontWeight: 700 }}>İşlem bulunamadı</div>
+        </div>
+      ) : (
+        <div style={{ background: "#fff", borderRadius: 16, border: "1px solid #eaecf0", overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr style={{ background: "#faf5ff" }}>
+                  {["Tarih / Saat","Müşteri","Stilist","Ödeme","İndirim","Toplam","Kalem"].map(h => (
+                    <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, color: "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item, i) => (
+                  <tr key={item.id} style={{ borderTop: i === 0 ? "none" : "1px solid #f1f5f9" }}
+                    onMouseOver={e => (e.currentTarget as HTMLElement).style.background = "#faf5ff"}
+                    onMouseOut={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+                  >
+                    <td style={{ padding: "10px 14px", whiteSpace: "nowrap", color: "#64748b", fontSize: 12 }}>
+                      {new Date(item.createdAtUtc).toLocaleDateString("tr-TR")}<br />
+                      <span style={{ color: "#94a3b8" }}>{new Date(item.createdAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </td>
+                    <td style={{ padding: "10px 14px", fontWeight: 600 }}>{item.customerName ?? <span style={{ color: "#94a3b8" }}>—</span>}</td>
+                    <td style={{ padding: "10px 14px", color: "#64748b" }}>{item.stylistName ?? <span style={{ color: "#94a3b8" }}>—</span>}</td>
+                    <td style={{ padding: "10px 14px" }}>
+                      <span style={{ padding: "2px 8px", borderRadius: 6, background: "#f5f3ff", color: "#7c3aed", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap" }}>
+                        {PM_LABELS[item.paymentMethod] ?? item.paymentMethod}
+                      </span>
+                    </td>
+                    <td style={{ padding: "10px 14px", color: item.discountAmount > 0 ? "#16a34a" : "#94a3b8", fontWeight: item.discountAmount > 0 ? 700 : 400, fontSize: 13 }}>
+                      {item.discountAmount > 0 ? `−₺${fmt(item.discountAmount)}` : "—"}
+                    </td>
+                    <td style={{ padding: "10px 14px", fontWeight: 900, color: "#7c3aed", fontSize: 16, whiteSpace: "nowrap" }}>₺{fmt(item.total)}</td>
+                    <td style={{ padding: "10px 14px", color: "#94a3b8", fontSize: 12 }}>{item.itemCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", alignItems: "center" }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{
+            padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff",
+            cursor: page === 1 ? "not-allowed" : "pointer",
+            color: page === 1 ? "#cbd5e1" : "#344054", fontWeight: 700, fontSize: 13,
+          }}>← Önceki</button>
+          <span style={{ fontSize: 13, color: "#64748b" }}>{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{
+            padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff",
+            cursor: page === totalPages ? "not-allowed" : "pointer",
+            color: page === totalPages ? "#cbd5e1" : "#344054", fontWeight: 700, fontSize: 13,
+          }}>Sonraki →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
    MASRAF PANEL
    ════════════════════════════════════════════════════════════════════ */
 function MasrafPanel({ bankAccounts }: { bankAccounts: BankAccount[] }) {
+  const { toast, confirm } = useToast();
   const [expenses,    setExpenses]    = useState<Expense[]>([]);
   const [loading,     setLoading]     = useState(false);
   const [showForm,    setShowForm]    = useState(false);
@@ -822,13 +1230,15 @@ function MasrafPanel({ bankAccounts }: { bankAccounts: BankAccount[] }) {
     });
     setSaving(false);
     if (r.ok) {
+      toast.success("Masraf kaydedildi.");
       setDescription(""); setCategory("Genel"); setAmount(""); setPayMethod("cash"); setBankId(""); setNotes("");
       setShowForm(false); load();
-    } else alert("Masraf kaydedilemedi.");
+    } else toast.error("Masraf kaydedilemedi.");
   };
 
   const del = async (id: string) => {
-    if (!confirm("Bu masrafı silmek istediğinizden emin misiniz?")) return;
+    const ok = await confirm({ message: "Bu masrafı silmek istediğinizden emin misiniz?", danger: true });
+    if (!ok) return;
     await apiFetch(`/Pos/expenses/${id}`, { method: "DELETE" });
     load();
   };
@@ -932,12 +1342,13 @@ function MasrafPanel({ bankAccounts }: { bankAccounts: BankAccount[] }) {
    ════════════════════════════════════════════════════════════════════ */
 function AySonuPanel({ stylists }: { stylists: { id: string; fullName: string }[] }) {
   const now = new Date();
-  const [year,    setYear]    = useState(now.getFullYear());
-  const [month,   setMonth]   = useState(now.getMonth() + 1);
-  const [summary, setSummary] = useState<MonthlySummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [editComm, setEditComm] = useState<Record<string, string>>({});
+  const [year,      setYear]      = useState(now.getFullYear());
+  const [month,     setMonth]     = useState(now.getMonth() + 1);
+  const [summary,   setSummary]   = useState<MonthlySummary | null>(null);
+  const [loading,   setLoading]   = useState(false);
+  const [editComm,  setEditComm]  = useState<Record<string, string>>({});
   const [savingComm, setSavingComm] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -952,10 +1363,13 @@ function AySonuPanel({ stylists }: { stylists: { id: string; fullName: string }[
     const val = parseFloat(editComm[stylistId] ?? "");
     if (isNaN(val)) return;
     setSavingComm(stylistId);
-    await apiFetch(`/Pos/stylists/${stylistId}/commission`, { method: "PATCH", body: JSON.stringify({ commissionRate: val }) });
+    const r = await apiFetch(`/Pos/stylists/${stylistId}/commission`, { method: "PATCH", body: JSON.stringify({ commissionRate: val }) });
     setSavingComm(null);
-    setEditComm(prev => { const n = { ...prev }; delete n[stylistId]; return n; });
-    load();
+    if (r.ok) {
+      toast.success("Komisyon oranı güncellendi.");
+      setEditComm(prev => { const n = { ...prev }; delete n[stylistId]; return n; });
+      load();
+    } else toast.error("Güncellenemedi.");
   };
 
   return (
@@ -974,13 +1388,14 @@ function AySonuPanel({ stylists }: { stylists: { id: string; fullName: string }[
 
       {summary && !loading && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-            {[
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+            {([
               ["Toplam Ciro",  `₺${fmt(summary.totalRevenue)}`, "#7c3aed"],
               ["Nakit",        `₺${fmt(summary.totalCash)}`,    "#16a34a"],
               ["Kart",         `₺${fmt(summary.totalCard)}`,    "#2563eb"],
+              ["Havale",       `₺${fmt(summary.totalBank ?? 0)}`, "#0891b2"],
               ["İşlem Sayısı", summary.txCount.toString(),      "#d97706"],
-            ].map(([lbl, val, color]) => (
+            ] as [string, string, string][]).map(([lbl, val, color]) => (
               <div key={lbl} style={{ background: "#fff", borderRadius: 12, padding: "16px 18px", border: "1px solid #f1f5f9" }}>
                 <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>{lbl}</div>
                 <div style={{ fontSize: 22, fontWeight: 900, color }}>{val}</div>
@@ -1082,3 +1497,7 @@ const qtyBtn: React.CSSProperties = {
   fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
   lineHeight: 1, padding: 0,
 };
+const btnSm = (bg: string): React.CSSProperties => ({
+  padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer",
+  background: bg, color: "#fff", fontWeight: 700, fontSize: 11,
+});

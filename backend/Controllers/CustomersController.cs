@@ -3,6 +3,7 @@ using System.Security.Claims;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
+using XCut.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,14 +16,20 @@ namespace XCut.Api.Controllers;
 public class CustomersController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IAuditService _audit;
 
-    public CustomersController(AppDbContext db) => _db = db;
+    public CustomersController(AppDbContext db, IAuditService audit) { _db = db; _audit = audit; }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Guid? GetUserId()
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    private Task<Guid?> GetSalonIdAsync()
+    {
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     // GET api/customers?search=&status=&page=1&pageSize=50
@@ -140,6 +147,8 @@ public class CustomersController : ControllerBase
 
         _db.Customers.Add(c);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Customer", c.Id.ToString(), "Create",
+            $"Müşteri oluşturuldu: {c.FirstName} {c.LastName}");
         return Ok(c.Id);
     }
 
@@ -173,6 +182,8 @@ public class CustomersController : ControllerBase
         c.UpdatedAtUtc     = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Customer", c.Id.ToString(), "Update",
+            $"Müşteri güncellendi: {c.FirstName} {c.LastName}");
         return Ok(c.Id);
     }
 
@@ -207,8 +218,11 @@ public class CustomersController : ControllerBase
         var c = await _db.Customers.FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (c is null) return NotFound(new { message = "Müşteri bulunamadı." });
 
+        var name = $"{c.FirstName} {c.LastName}";
         _db.Customers.Remove(c);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Customer", id.ToString(), "Delete",
+            $"Müşteri silindi: {name}");
         return NoContent();
     }
 

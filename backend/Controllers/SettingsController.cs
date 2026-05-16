@@ -30,28 +30,41 @@ public class SettingsController : ControllerBase
         return await _db.Users.FirstOrDefaultAsync(x => x.Id == userId);
     }
 
+    private Guid GetEffectiveSalonId(User user)
+    {
+        var claim = User.FindFirstValue("salonId");
+        return Guid.TryParse(claim, out var id) ? id : user.SalonId;
+    }
+
     [HttpGet("organization")]
     public async Task<IActionResult> GetOrganization()
     {
         var user = await GetCurrentUserAsync();
         if (user is null) return Unauthorized();
 
-        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == user.SalonId);
+        var effectiveSalonId = GetEffectiveSalonId(user);
+        var salon = await _db.Salons.FindAsync(effectiveSalonId);
+
+        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == effectiveSalonId);
         if (item is null)
         {
-            item = new OrganizationSetting { SalonId = user.SalonId };
+            item = new OrganizationSetting { SalonId = effectiveSalonId };
             _db.OrganizationSettings.Add(item);
             await _db.SaveChangesAsync();
         }
 
         return Ok(new OrganizationSettingsResponse
         {
-            Id               = item.Id,
-            SalonId          = item.SalonId,
-            CompanyName      = item.CompanyName,
-            ApplicationTitle = item.ApplicationTitle,
-            LogoUrl          = item.LogoUrl,
-            PrimaryColor     = item.PrimaryColor,
+            Id                 = item.Id,
+            SalonId            = item.SalonId,
+            CompanyName        = item.CompanyName,
+            ApplicationTitle   = item.ApplicationTitle,
+            LogoUrl            = item.LogoUrl,
+            PrimaryColor       = item.PrimaryColor,
+            MfaEnabled         = item.MfaEnabled,
+            NotificationConfig = item.NotificationConfig,
+            Plan               = salon?.Plan,
+            TrialEndsAtUtc     = salon?.TrialEndsAtUtc,
         });
     }
 
@@ -61,17 +74,20 @@ public class SettingsController : ControllerBase
         var user = await GetCurrentUserAsync();
         if (user is null) return Unauthorized();
 
-        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == user.SalonId);
+        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == GetEffectiveSalonId(user));
         if (item is null)
         {
-            item = new OrganizationSetting { SalonId = user.SalonId };
+            item = new OrganizationSetting { SalonId = GetEffectiveSalonId(user) };
             _db.OrganizationSettings.Add(item);
         }
 
-        item.CompanyName      = string.IsNullOrWhiteSpace(request.CompanyName) ? "Salon" : request.CompanyName;
-        item.LogoUrl          = request.LogoUrl;
-        item.PrimaryColor     = string.IsNullOrWhiteSpace(request.PrimaryColor) ? "#7c3aed" : request.PrimaryColor;
-        item.UpdatedAtUtc     = DateTime.UtcNow;
+        item.CompanyName        = string.IsNullOrWhiteSpace(request.CompanyName) ? "Salon" : request.CompanyName;
+        item.LogoUrl            = request.LogoUrl;
+        item.PrimaryColor       = string.IsNullOrWhiteSpace(request.PrimaryColor) ? "#7c3aed" : request.PrimaryColor;
+        item.MfaEnabled         = request.MfaEnabled;
+        if (request.NotificationConfig is not null)
+            item.NotificationConfig = request.NotificationConfig;
+        item.UpdatedAtUtc       = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
         return Ok(item.Id);
@@ -100,10 +116,10 @@ public class SettingsController : ControllerBase
             await file.CopyToAsync(stream);
 
         var url  = $"/uploads/logos/{fileName}";
-        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == user.SalonId);
+        var item = await _db.OrganizationSettings.FirstOrDefaultAsync(x => x.SalonId == GetEffectiveSalonId(user));
         if (item is null)
         {
-            item = new OrganizationSetting { SalonId = user.SalonId };
+            item = new OrganizationSetting { SalonId = GetEffectiveSalonId(user) };
             _db.OrganizationSettings.Add(item);
         }
         item.LogoUrl      = url;
@@ -121,7 +137,7 @@ public class SettingsController : ControllerBase
         if (user is null) return Unauthorized();
 
         var users = await _db.Users
-            .Where(u => u.SalonId == user.SalonId && u.IsActive)
+            .Where(u => u.SalonId == GetEffectiveSalonId(user) && u.IsActive)
             .Include(u => u.Role)
             .OrderBy(u => u.FullName)
             .Select(u => new { u.Id, u.FullName, u.Email, Role = u.Role != null ? u.Role.Name : null })

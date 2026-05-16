@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using XCut.Api.Data;
 using XCut.Api.Models;
+using XCut.Api.Services;
 
 namespace XCut.Api.Controllers;
 
@@ -14,14 +15,18 @@ namespace XCut.Api.Controllers;
 public class PosController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IAuditService _audit;
+    private readonly IWhatsAppService _whatsapp;
 
-    public PosController(AppDbContext db) => _db = db;
-
-    private async Task<Guid?> GetSalonIdAsync()
+    public PosController(AppDbContext db, IAuditService audit, IWhatsAppService whatsapp)
     {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        _db = db; _audit = audit; _whatsapp = whatsapp;
+    }
+
+    private Task<Guid?> GetSalonIdAsync()
+    {
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     // GET api/Pos/init — stilistler + hizmetler
@@ -179,6 +184,14 @@ public class PosController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        _ = _audit.LogAsync(salonId.Value, null, "PosTransaction", tx.Id.ToString(), "Create",
+            $"Kasa işlemi: ₺{tx.Total:F2} — {tx.PaymentMethod}{(tx.CustomerName != null ? $" — {tx.CustomerName}" : "")}");
+
+        _ = SendSurveyAfterCheckoutAsync(salonId.Value, tx);
+
+        // Auto-create invoice for this POS transaction
+        var invoiceId = await CreateInvoiceForTransactionAsync(salonId.Value, tx);
+
         return Ok(new
         {
             tx.Id,
@@ -189,7 +202,89 @@ public class PosController : ControllerBase
             tx.PaymentMethod,
             tx.CreatedAtUtc,
             itemCount = tx.Items.Count,
+            invoiceId,
         });
+    }
+
+    private async Task<Guid?> CreateInvoiceForTransactionAsync(Guid salonId, PosTransaction tx)
+    {
+        try
+        {
+            var count = await _db.Invoices.CountAsync(i => i.SalonId == salonId);
+            var invoiceNo = $"INV-{DateTime.UtcNow:yyyy}-{(count + 1):D4}";
+            var paymentLabel = tx.PaymentMethod switch
+            {
+                "cash"  => "Nakit",
+                "card"  => "Kredi Kartı",
+                "bank"  => "Banka Transferi",
+                "mixed" => "Karma Ödeme",
+                _       => tx.PaymentMethod,
+            };
+
+            var inv = new Invoice
+            {
+                SalonId          = salonId,
+                CustomerId       = tx.CustomerId,
+                StylistId        = tx.StylistId,
+                PosTransactionId = tx.Id,
+                InvoiceNo        = invoiceNo,
+                IssuedAtUtc      = tx.CreatedAtUtc,
+                Status           = InvoiceStatuses.Paid,
+                Currency         = "TRY",
+                TaxRate          = 0,
+                Notes            = $"Kasa ödemesi — {paymentLabel}{(tx.CustomerName != null ? $" — {tx.CustomerName}" : "")}",
+            };
+
+            foreach (var item in tx.Items)
+            {
+                inv.Items.Add(new InvoiceItem
+                {
+                    Description = item.Name,
+                    Quantity    = item.Quantity,
+                    UnitPrice   = item.UnitPrice,
+                    LineTotal   = item.LineTotal,
+                });
+            }
+
+            inv.Subtotal  = tx.Subtotal;
+            inv.TaxAmount = 0;
+            inv.Total     = tx.Total;
+
+            _db.Invoices.Add(inv);
+            await _db.SaveChangesAsync();
+            return inv.Id;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task SendSurveyAfterCheckoutAsync(Guid salonId, PosTransaction tx)
+    {
+        try
+        {
+            if (!tx.CustomerId.HasValue) return;
+
+            var customer = await _db.Customers
+                .FirstOrDefaultAsync(c => c.Id == tx.CustomerId.Value);
+            if (customer is null || string.IsNullOrWhiteSpace(customer.Phone)) return;
+
+            var survey = await _db.Surveys
+                .Where(s => s.SalonId == salonId && s.Status == "Active")
+                .OrderByDescending(s => s.CreatedAtUtc)
+                .FirstOrDefaultAsync();
+            if (survey is null) return;
+
+            var firstName = customer.FirstName ?? tx.CustomerName?.Split(' ')[0] ?? "";
+            var surveyUrl = $"https://xcut.xshield.com.tr/survey/{survey.Id}";
+            var msg = $"Merhaba{(firstName.Length > 0 ? " " + firstName : "")}! Hizmetimizden ne kadar memnun kaldınız? " +
+                      $"Görüşleriniz bizim için çok değerli 😊 {surveyUrl}";
+
+            await _whatsapp.SendTextAsync(salonId, customer.Phone, msg,
+                customer.Id, "Otomatik", null, "survey");
+        }
+        catch { /* fire-and-forget — log suppressed intentionally */ }
     }
 
     // GET api/Pos/monthly-summary?year=2026&month=4
@@ -248,10 +343,39 @@ public class PosController : ControllerBase
             totalRevenue   = txs.Sum(t => t.Total),
             totalCash      = txs.Sum(t => t.CashAmount),
             totalCard      = txs.Sum(t => t.CardAmount),
+            totalBank      = txs.Sum(t => t.BankAmount),
             txCount        = txs.Count,
             stylists       = stylistRows,
             unassignedTotal = unassigned.Sum(t => t.Total),
             unassignedCount = unassigned.Count,
+        });
+    }
+
+    // GET api/Pos/today
+    [HttpGet("today")]
+    public async Task<IActionResult> Today()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var todayStart = DateTime.UtcNow.Date;
+        var txs = await _db.PosTransactions
+            .Where(t => t.SalonId == salonId.Value && t.Status == "completed" && t.CreatedAtUtc >= todayStart)
+            .ToListAsync();
+
+        var session = await _db.CashSessions
+            .Where(s => s.SalonId == salonId.Value && s.Status == "Open")
+            .OrderByDescending(s => s.OpenedAtUtc)
+            .Select(s => new { s.Id, s.OpenedAtUtc, s.OpeningBalance })
+            .FirstOrDefaultAsync();
+
+        return Ok(new {
+            totalRevenue = txs.Sum(t => t.Total),
+            totalCash    = txs.Sum(t => t.CashAmount),
+            totalCard    = txs.Sum(t => t.CardAmount),
+            totalBank    = txs.Sum(t => t.BankAmount),
+            txCount      = txs.Count,
+            session,
         });
     }
 
@@ -317,6 +441,17 @@ public class PosController : ControllerBase
         if (appt.PosTransactionId.HasValue)
             return BadRequest(new { message = "Bu randevu zaten kasaya aktarılmış." });
 
+        // If service wasn't linked by ID, try exact name match (handles free-text entries)
+        decimal servicePrice = appt.Service?.Price ?? 0m;
+        if (servicePrice == 0 && !string.IsNullOrWhiteSpace(appt.ServiceName) && appt.ServiceId is null)
+        {
+            var svcByName = await _db.Services
+                .Where(s => s.SalonId == salonId.Value && s.Name == appt.ServiceName)
+                .Select(s => s.Price)
+                .FirstOrDefaultAsync();
+            servicePrice = svcByName;
+        }
+
         return Ok(new
         {
             appointmentId    = appt.Id,
@@ -331,7 +466,7 @@ public class PosController : ControllerBase
                 {
                     serviceId = appt.ServiceId,
                     name      = appt.ServiceName,
-                    unitPrice = appt.Service?.Price ?? 0m,
+                    unitPrice = servicePrice,
                     quantity  = 1,
                 }
             }

@@ -1,6 +1,7 @@
-using System.Net;
-using System.Net.Mail;
+using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Options;
+using MimeKit;
 
 namespace XCut.Api.Services;
 
@@ -13,7 +14,7 @@ public interface IEmailService
 public class SmtpSettings
 {
     public string Host        { get; set; } = string.Empty;
-    public int    Port        { get; set; } = 587;
+    public int    Port        { get; set; } = 465;
     public bool   UseSsl      { get; set; } = true;
     public string UserName    { get; set; } = string.Empty;
     public string Password    { get; set; } = string.Empty;
@@ -48,17 +49,20 @@ public class SmtpEmailService : IEmailService
 
         try
         {
-            using var client = new SmtpClient(_cfg.Host, _cfg.Port)
-            {
-                EnableSsl   = _cfg.UseSsl,
-                Credentials = new NetworkCredential(_cfg.UserName, _cfg.Password),
-            };
+            var msg = new MimeMessage();
+            msg.From.Add(new MailboxAddress(_cfg.FromName, _cfg.FromAddress));
+            foreach (var to in toList) msg.To.Add(MailboxAddress.Parse(to));
+            msg.Subject = subject;
+            msg.Body    = new TextPart("html") { Text = htmlBody };
 
-            var from = new MailAddress(_cfg.FromAddress, _cfg.FromName);
-            using var msg = new MailMessage { From = from, Subject = subject, IsBodyHtml = true, Body = htmlBody };
-            foreach (var to in toList) msg.To.Add(to);
+            using var client = new SmtpClient();
+            // Port 465 = implicit SSL (SslOnConnect), port 587 = STARTTLS (StartTls)
+            var socketOptions = _cfg.Port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls;
+            await client.ConnectAsync(_cfg.Host, _cfg.Port, socketOptions);
+            await client.AuthenticateAsync(_cfg.UserName, _cfg.Password);
+            await client.SendAsync(msg);
+            await client.DisconnectAsync(true);
 
-            await client.SendMailAsync(msg);
             _log.LogInformation("[EMAIL] Sent '{Subject}' to {Count} recipient(s).", subject, toList.Count);
         }
         catch (Exception ex)

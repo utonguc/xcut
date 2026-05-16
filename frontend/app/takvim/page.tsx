@@ -61,7 +61,7 @@ export default function TakvimPage() {
   useEffect(() => {
     Promise.all([
       apiFetch("/Stylists?activeOnly=true").then(r => r.ok ? r.json() : []) as Promise<Stylist[]>,
-      apiFetch("/api/auth/me").then(r => r.ok ? r.json() : null) as Promise<{ isSelfOnly?: boolean; stylistId?: string } | null>,
+      apiFetch("/Auth/me").then(r => r.ok ? r.json() : null) as Promise<{ isSelfOnly?: boolean; stylistId?: string } | null>,
     ]).then(([allStylists, me]) => {
       const filtered = (me?.isSelfOnly && me?.stylistId)
         ? allStylists.filter(s => s.id === me.stylistId)

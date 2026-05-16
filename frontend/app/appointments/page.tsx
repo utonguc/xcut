@@ -4,12 +4,28 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
+import { useToast } from "@/components/Toast";
 import { fmtTime, fmtDateTime, toIstMins, localToUtc } from "@/lib/tz";
 
 /* ── Types ─────────────────────────────────────────────────────── */
 type Customer = { id: string; firstName: string; lastName: string };
 type Stylist  = { id: string; fullName: string; branch?: string };
 type Service  = { id: string; name: string; category: string; price: number; durationMinutes: number };
+type ApptReq  = {
+  id: string;
+  stylistName: string;
+  requestedStartUtc: string;
+  requestedEndUtc: string;
+  serviceName: string;
+  customerFirstName: string;
+  customerLastName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  customerNotes?: string;
+  status: string;
+  rejectionReason?: string;
+  createdAtUtc: string;
+};
 type Appt     = {
   id: string;
   customerId?: string;       stylistId?: string;
@@ -59,7 +75,8 @@ function apptHeight(start: string, end: string) {
 /* ── Page ───────────────────────────────────────────────────────── */
 export default function AppointmentsPage() {
   const router = useRouter();
-  const [view,       setView]       = useState<"week"|"day"|"list">("week");
+  const { toast } = useToast();
+  const [view,       setView]       = useState<"week"|"day"|"list"|"requests">("week");
   const [date,       setDate]       = useState(() => new Date());
   const [appts,      setAppts]      = useState<Appt[]>([]);
   const [customers,  setCustomers]  = useState<Customer[]>([]);
@@ -68,22 +85,110 @@ export default function AppointmentsPage() {
   const [loading,    setLoading]    = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterStylist, setFilterStylist] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [showModal,  setShowModal]  = useState(false);
   const [editAppt,   setEditAppt]   = useState<Appt | null>(null);
+  const [requests,   setRequests]   = useState<ApptReq[]>([]);
+  const [reqLoading, setReqLoading] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [rejectModal, setRejectModal] = useState<{ id: string; req: ApptReq } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [salonName, setSalonName] = useState("");
 
   useEffect(() => {
     apiFetch("/Customers?pageSize=200").then(r => r.ok ? r.json() : []).then(setCustomers);
     apiFetch("/Pos/init").then(r => r.ok ? r.json() : null).then(d => { if (d?.services) setServices(d.services); });
     Promise.all([
       apiFetch("/Stylists?activeOnly=true").then(r => r.ok ? r.json() : []) as Promise<Stylist[]>,
-      apiFetch("/api/auth/me").then(r => r.ok ? r.json() : null),
+      apiFetch("/Auth/me").then(r => r.ok ? r.json() : null),
     ]).then(([all, me]) => {
       const filtered = (me?.isSelfOnly && me?.stylistId) ? all.filter((s: Stylist) => s.id === me.stylistId) : all;
       setStylists(filtered);
+      if (me?.salonName) setSalonName(me.salonName);
     }).catch(() =>
       apiFetch("/Doctors?activeOnly=true").then(r => r.ok ? r.json() : []).then(setStylists)
     );
   }, []);
+
+  const loadRequests = useCallback(async () => {
+    setReqLoading(true);
+    try {
+      const r = await apiFetch("/AppointmentRequests");
+      if (r.ok) {
+        const all: ApptReq[] = await r.json();
+        setRequests(all);
+        setPendingCount(all.filter(x => x.status === "Pending").length);
+      }
+    } finally { setReqLoading(false); }
+  }, []);
+
+  useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  const approveRequest = async (req: ApptReq) => {
+    const r = await apiFetch(`/AppointmentRequests/${req.id}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "approve" }),
+    });
+    if (r.ok) {
+      toast.success("Randevu onaylandı.");
+      loadRequests();
+      if (req.customerEmail) {
+        fetch("/api/notify", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "booking_status",
+            to: req.customerEmail,
+            subject: "Randevunuz Onaylandı",
+            data: {
+              status: "approved",
+              salonName,
+              stylistName: req.stylistName,
+              serviceName: req.serviceName,
+              startUtc: req.requestedStartUtc,
+              customerFirstName: req.customerFirstName,
+            },
+          }),
+        }).catch(() => {});
+      }
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast.error(d.message ?? "Onaylama başarısız.");
+    }
+  };
+
+  const rejectRequest = async (req: ApptReq, reason: string) => {
+    const r = await apiFetch(`/AppointmentRequests/${req.id}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "reject", rejectionReason: reason }),
+    });
+    if (r.ok) {
+      toast.success("Talep reddedildi.");
+      setRejectModal(null); setRejectReason("");
+      loadRequests();
+      if (req.customerEmail) {
+        fetch("/api/notify", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            template: "booking_status",
+            to: req.customerEmail,
+            subject: "Randevu Talebiniz Hakkında",
+            data: {
+              status: "rejected",
+              salonName,
+              stylistName: req.stylistName,
+              serviceName: req.serviceName,
+              startUtc: req.requestedStartUtc,
+              customerFirstName: req.customerFirstName,
+              rejectionReason: reason,
+            },
+          }),
+        }).catch(() => {});
+      }
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast.error(d.message ?? "Red işlemi başarısız.");
+    }
+  };
 
   const weekStart = startOfWeek(date);
   const weekDays  = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -113,6 +218,13 @@ export default function AppointmentsPage() {
   const svcName = (a: Appt) => a.serviceName ?? a.procedureName ?? "";
   const stName  = (a: Appt) => a.stylistFullName ?? a.doctorFullName ?? "";
 
+  const filteredAppts = searchText.trim()
+    ? appts.filter(a => {
+        const q = searchText.toLowerCase();
+        return aptName(a).toLowerCase().includes(q) || svcName(a).toLowerCase().includes(q) || stName(a).toLowerCase().includes(q);
+      })
+    : appts;
+
   const sendToKasa = async (a: Appt) => {
     const r = await apiFetch(`/Pos/from-appointment/${a.id}`);
     const prefill = r.ok ? await r.json() : null;
@@ -141,9 +253,12 @@ export default function AppointmentsPage() {
           className="inp" style={{ width: 160, minHeight: 40 }} />
 
         <div style={{ display: "flex", gap: 4 }}>
-          {(["week","day","list"] as const).map(v => (
-            <button key={v} onClick={() => setView(v)} className={`btn ${view === v ? "btn-primary" : "btn-ghost"}`} style={{ padding: "8px 14px", minHeight: 40, fontSize: 13 }}>
-              {v === "week" ? "Hafta" : v === "day" ? "Gün" : "Liste"}
+          {(["week","day","list","requests"] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} className={`btn ${view === v ? "btn-primary" : "btn-ghost"}`} style={{ padding: "8px 14px", minHeight: 40, fontSize: 13, position: "relative" }}>
+              {v === "week" ? "Hafta" : v === "day" ? "Gün" : v === "list" ? "Liste" : "Talepler"}
+              {v === "requests" && pendingCount > 0 && (
+                <span style={{ position: "absolute", top: 4, right: 4, background: "#ef4444", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 800, padding: "1px 5px", lineHeight: 1.4 }}>{pendingCount}</span>
+              )}
             </button>
           ))}
         </div>
@@ -158,10 +273,18 @@ export default function AppointmentsPage() {
           {stylists.map(s => <option key={s.id} value={s.id}>{s.fullName}</option>)}
         </select>
 
+        <input
+          value={searchText}
+          onChange={e => setSearchText(e.target.value)}
+          placeholder="Müşteri veya hizmet ara..."
+          className="inp"
+          style={{ width: 210, minHeight: 40 }}
+        />
+
         <button onClick={load} className="btn btn-ghost" style={{ minHeight: 40, marginLeft: "auto" }}>🔄 Yenile</button>
       </div>
 
-      {loading ? (
+      {view !== "requests" && (loading ? (
         <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>
           <div style={{ width: 32, height: 32, border: "3px solid #ede9fe", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
           Yükleniyor...
@@ -169,7 +292,8 @@ export default function AppointmentsPage() {
       ) : view === "list" ? (
         /* ── LIST VIEW ── */
         <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: 600, borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "var(--surface-2,#f8fafc)" }}>
                 {["Müşteri","Hizmet","Stilist","Tarih/Saat","Durum","",""].map(h => (
@@ -178,10 +302,10 @@ export default function AppointmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {appts.length === 0 && (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>Randevu bulunamadı</td></tr>
+              {filteredAppts.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: 40, textAlign: "center", color: "#94a3b8" }}>{searchText ? `"${searchText}" için randevu bulunamadı` : "Randevu bulunamadı"}</td></tr>
               )}
-              {appts.map(a => {
+              {filteredAppts.map(a => {
                 const overdue = isOverdue(a);
                 const st = overdue
                   ? { ...STATUSES.Scheduled, bg: "#fff7ed", color: "#c2410c", bar: "#f97316", label: "Süresi Geçti", emoji: "⏰" }
@@ -212,6 +336,7 @@ export default function AppointmentsPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       ) : view === "day" ? (
         /* ── DAY VIEW ── */
@@ -330,6 +455,82 @@ export default function AppointmentsPage() {
             })}
           </div>
         </div>
+      ))}
+
+      {view === "requests" && (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          {/* Filter tabs */}
+          <div style={{ display: "flex", gap: 2, padding: "12px 16px", borderBottom: "1px solid var(--border,#eaecf0)", background: "var(--surface-2,#f8fafc)" }}>
+            {[["", "Tümü"], ["Pending", "Bekleyenler"], ["Approved", "Onaylananlar"], ["Rejected", "Reddedilenler"]].map(([k, lbl]) => (
+              <button key={k} onClick={() => setFilterStatus(k)} className={`btn ${filterStatus === k ? "btn-primary" : "btn-ghost"}`} style={{ padding: "6px 14px", fontSize: 12, minHeight: 34 }}>
+                {lbl}{k === "Pending" && pendingCount > 0 ? ` (${pendingCount})` : ""}
+              </button>
+            ))}
+            <button onClick={loadRequests} className="btn btn-ghost" style={{ marginLeft: "auto", padding: "6px 12px", minHeight: 34, fontSize: 12 }}>🔄</button>
+          </div>
+          {reqLoading ? (
+            <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>
+              <div style={{ width: 28, height: 28, border: "3px solid #ede9fe", borderTopColor: "#7c3aed", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 10px" }} />
+              Yükleniyor...
+            </div>
+          ) : (
+            <div>
+              {requests.filter(r => !filterStatus || r.status === filterStatus).length === 0 ? (
+                <div style={{ padding: 48, textAlign: "center", color: "#94a3b8", fontSize: 14 }}>Kayıt bulunamadı</div>
+              ) : requests.filter(r => !filterStatus || r.status === filterStatus).map(req => {
+                const isPending  = req.status === "Pending";
+                const isApproved = req.status === "Approved";
+                const stCfg = isPending ? { bg: "#fef3c7", color: "#92400e", label: "Bekliyor" }
+                            : isApproved ? { bg: "#dcfce7", color: "#166534", label: "Onaylandı" }
+                            : { bg: "#fee2e2", color: "#991b1b", label: "Reddedildi" };
+                return (
+                  <div key={req.id} style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "16px 20px", borderBottom: "1px solid var(--border,#f2f4f7)", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{req.customerFirstName} {req.customerLastName}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>
+                        {req.customerPhone && <span>{req.customerPhone} · </span>}
+                        {req.customerEmail && <span>{req.customerEmail}</span>}
+                      </div>
+                      <div style={{ fontSize: 13, color: "#374151" }}>
+                        <span style={{ fontWeight: 600 }}>{req.stylistName}</span> · {req.serviceName}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{fmtDateTime(req.requestedStartUtc)}</div>
+                      {req.customerNotes && <div style={{ fontSize: 12, color: "#64748b", marginTop: 4, fontStyle: "italic" }}>Not: {req.customerNotes}</div>}
+                      {req.rejectionReason && <div style={{ fontSize: 12, color: "#991b1b", marginTop: 4 }}>Red nedeni: {req.rejectionReason}</div>}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                      <span className="badge" style={{ background: stCfg.bg, color: stCfg.color }}>{stCfg.label}</span>
+                      {isPending && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => approveRequest(req)} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#dcfce7", color: "#166534", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✓ Onayla</button>
+                          <button onClick={() => { setRejectModal({ id: req.id, req }); setRejectReason(""); }} style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: "#fee2e2", color: "#991b1b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>✕ Reddet</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Reject reason modal */}
+      {rejectModal && (
+        <>
+          <div onClick={() => setRejectModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", zIndex: 400 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(420px, 94vw)", zIndex: 401, background: "var(--surface,#fff)", borderRadius: 16, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", border: "1px solid var(--border,#eaecf0)" }}>
+            <div style={{ padding: "18px 20px", borderBottom: "1px solid var(--border,#eaecf0)", fontWeight: 800, fontSize: 16 }}>Talebi Reddet</div>
+            <div style={{ padding: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#344054", display: "block", marginBottom: 6 }}>Red Nedeni (isteğe bağlı)</label>
+              <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} rows={3} placeholder="Müşteriye iletilecek açıklama..." style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border,#d0d5dd)", fontSize: 14, resize: "vertical", boxSizing: "border-box" }} />
+              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                <button onClick={() => setRejectModal(null)} className="btn btn-ghost" style={{ flex: 1 }}>İptal</button>
+                <button onClick={() => rejectRequest(rejectModal.req, rejectReason)} style={{ flex: 2, padding: "11px", borderRadius: 10, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Reddet</button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {showModal && (
@@ -359,6 +560,7 @@ function ApptModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { toast, confirm } = useToast();
   const isEdit = !!(appt?.id);
 
   function toLocalStr(utc: string) {
@@ -395,6 +597,7 @@ function ApptModal({
 
   const save = async () => {
     if (!customerId) { setError("Müşteri seçiniz."); return; }
+    if (!stylistId)  { setError("Stilist seçiniz."); return; }
     if (!service)    { setError("Hizmet adı giriniz."); return; }
     if (!start)      { setError("Başlangıç saati giriniz."); return; }
     setSaving(true);
@@ -403,7 +606,13 @@ function ApptModal({
         customerId, stylistId, serviceName: service, notes,
         status: currentStatus,
         startAtUtc: localToUtc(start),
-        endAtUtc:   end ? localToUtc(end) : localToUtc(start),
+        endAtUtc: (() => {
+          if (end) return localToUtc(end);
+          const dur = services.find(x => x.name === service)?.durationMinutes ?? 30;
+          const d = new Date(new Date(start).getTime() + dur * 60000);
+          const p = (n: number) => String(n).padStart(2, "0");
+          return localToUtc(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`);
+        })(),
       };
       const res = isEdit
         ? await apiFetch(`/Appointments/${appt!.id}`, { method: "PUT", body: JSON.stringify(body) })
@@ -433,14 +642,15 @@ function ApptModal({
 
   const shiftSubsequent = async (mins: number) => {
     if (!appt?.stylistId || !appt?.startAtUtc) return;
-    if (!confirm(`Bu stilistin ${nextAppts.length} sonraki randevusu ${mins} dk kaydırılacak. Onaylıyor musunuz?`)) return;
+    const ok = await confirm({ message: `Bu stilistin ${nextAppts.length} sonraki randevusu ${mins} dk kaydırılacak. Onaylıyor musunuz?` });
+    if (!ok) return;
     setActing(true);
     const res = await apiFetch("/Appointments/shift-stylist", {
       method: "POST",
       body: JSON.stringify({ stylistId: appt.stylistId, afterUtc: appt.startAtUtc, shiftMinutes: mins }),
     });
     setActing(false);
-    if (res.ok) { const d = await res.json(); onSaved(); alert(`${d.shifted} randevu ${mins} dk kaydırıldı.`); }
+    if (res.ok) { const d = await res.json(); onSaved(); toast.success(`${d.shifted} randevu ${mins} dk kaydırıldı.`); }
     else setError("Randevular kaydırılamadı");
   };
 
@@ -544,7 +754,7 @@ function ApptModal({
             </select>
           </div>
           <div>
-            <label style={lbl}>Stilist</label>
+            <label style={lbl}>Stilist *</label>
             <select value={stylistId} onChange={e => setStylistId(e.target.value)} style={inp}>
               <option value="">Stilist seçiniz...</option>
               {stylists.map(st => <option key={st.id} value={st.id}>{st.fullName}</option>)}
@@ -585,7 +795,17 @@ function ApptModal({
           </div>
           <div>
             <label style={lbl}>Başlangıç *</label>
-            <input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} style={inp} />
+            <input type="datetime-local" value={start} onChange={e => {
+              const v = e.target.value;
+              setStart(v);
+              if (v) {
+                const svc = services.find(x => x.name === service);
+                const dur = svc?.durationMinutes ?? 30;
+                const d = new Date(new Date(v).getTime() + dur * 60000);
+                const p = (n: number) => String(n).padStart(2, "0");
+                setEnd(`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`);
+              }
+            }} style={inp} />
           </div>
           <div>
             <label style={lbl}>Bitiş</label>

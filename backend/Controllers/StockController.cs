@@ -1,29 +1,34 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
+using XCut.Api.Services;
 
 namespace XCut.Api.Controllers;
 
 [ApiController]
-[Route("[controller]")]
+[Route("api/[controller]")]
 [Authorize]
 public class StockController : ControllerBase
 {
     private readonly AppDbContext _db;
-    public StockController(AppDbContext db) { _db = db; }
+    private readonly IAuditService _audit;
+    public StockController(AppDbContext db, IAuditService audit) { _db = db; _audit = audit; }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
     {
-        var raw = User.FindFirstValue("salonId") ?? User.FindFirstValue("SalonId");
-        if (Guid.TryParse(raw, out var id)) return id;
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userId is null) return null;
-        var user = await _db.Users.Include(u => u.Salon).FirstOrDefaultAsync(u => u.Id.ToString() == userId);
-        return user?.SalonId;
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
+    }
+
+    private Guid? GetUserId()
+    {
+        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
+        return Guid.TryParse(sub, out var id) ? id : null;
     }
 
     // GET /Stock
@@ -190,6 +195,7 @@ public class StockController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "StockItem", item.Id.ToString(), "Create", $"Stok ürünü oluşturuldu: {item.Name}");
         return Ok(item.Id);
     }
 
@@ -218,6 +224,7 @@ public class StockController : ControllerBase
         item.ExpiresAtUtc = req.ExpiresAtUtc;
 
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "StockItem", id.ToString(), "Update", $"Stok ürünü güncellendi: {item.Name}");
         return Ok();
     }
 
@@ -251,6 +258,7 @@ public class StockController : ControllerBase
         });
 
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "StockItem", id.ToString(), "StockMovement", $"Stok hareketi: {req.Type} {req.Quantity} {item.Name}");
         return Ok(new { quantity = item.Quantity });
     }
 
@@ -266,6 +274,79 @@ public class StockController : ControllerBase
 
         _db.StockItems.Remove(item);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "StockItem", id.ToString(), "Delete", $"Stok ürünü silindi: {item.Name}");
         return NoContent();
+    }
+
+    // GET /Stock/stats — hareket istatistikleri
+    [HttpGet("stats")]
+    public async Task<IActionResult> Stats()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var itemIds = await _db.StockItems
+            .Where(x => x.SalonId == salonId.Value)
+            .Select(x => x.Id)
+            .ToListAsync();
+
+        var totalCounts = await _db.StockMovements
+            .Where(m => itemIds.Contains(m.StockItemId))
+            .GroupBy(m => m.StockItemId)
+            .Select(g => new { Id = g.Key, Total = g.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.Total);
+
+        var monthCounts = await _db.StockMovements
+            .Where(m => itemIds.Contains(m.StockItemId) && m.CreatedAtUtc >= monthStart)
+            .GroupBy(m => m.StockItemId)
+            .Select(g => new { Id = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Id, x => x.Count);
+
+        var result = itemIds.Select(id => new
+        {
+            id                 = id,
+            movementsThisMonth = monthCounts.GetValueOrDefault(id, 0),
+            movementsTotal     = totalCounts.GetValueOrDefault(id, 0),
+        });
+
+        return Ok(result);
+    }
+
+    // POST /Stock/bulk-price — toplu fiyat güncelleme
+    [HttpPost("bulk-price")]
+    public async Task<IActionResult> BulkPrice([FromBody] BulkStockPriceRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        if (req.Amount <= 0) return BadRequest(new { message = "Tutar sıfırdan büyük olmalıdır." });
+
+        var q = _db.StockItems.Where(x => x.SalonId == salonId.Value);
+        if (!string.IsNullOrWhiteSpace(req.Category))
+            q = q.Where(x => x.Category == req.Category);
+
+        var items = await q.ToListAsync();
+        if (items.Count == 0) return BadRequest(new { message = "Güncellenecek ürün bulunamadı." });
+
+        foreach (var item in items)
+        {
+            if (req.Field == "unitCost")
+            {
+                item.UnitCost = req.Mode == "percent"
+                    ? Math.Round(item.UnitCost * (1 + req.Amount / 100), 2)
+                    : Math.Max(0, item.UnitCost + req.Amount);
+            }
+            else
+            {
+                item.SalePrice = req.Mode == "percent"
+                    ? Math.Round(item.SalePrice * (1 + req.Amount / 100), 2)
+                    : Math.Max(0, item.SalePrice + req.Amount);
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { updated = items.Count });
     }
 }

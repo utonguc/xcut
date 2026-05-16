@@ -7,16 +7,13 @@ import { staticUrl } from "@/lib/api";
 type Salon = {
   slug: string;
   name: string;
-  city: string;
-  address: string;
-  phone: string;
-  email: string;
+  city?: string;
+  address?: string;
+  phone?: string;
   logoUrl?: string;
   primaryColor: string;
   services: string[];
   bookingEnabled: boolean;
-  heroTitle?: string;
-  aboutText?: string;
 };
 
 type Message = {
@@ -147,15 +144,15 @@ export default function SalonBulPage() {
         </p>
       </div>
 
-      <div style={{
+      <div className="salonbul-layout" style={{
         flex: 1, display: "flex", maxWidth: 1280, width: "100%",
         marginInline: "auto", padding: "24px", gap: 24,
         alignItems: "flex-start",
         flexWrap: "wrap",
       }}>
 
-        <div style={{
-          flex: "0 0 420px", minWidth: 320,
+        <div className="salonbul-chat" style={{
+          flex: "0 0 420px", minWidth: 300,
           background: "#fff", borderRadius: 20, border: "1px solid #e2e8f0",
           display: "flex", flexDirection: "column",
           boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
@@ -330,6 +327,16 @@ export default function SalonBulPage() {
           0%, 80%, 100% { transform: translateY(0); }
           40% { transform: translateY(-6px); }
         }
+        @media (max-width: 768px) {
+          .salonbul-layout { flex-direction: column !important; padding: 12px !important; gap: 16px !important; }
+          .salonbul-chat {
+            flex: none !important; width: 100% !important; min-width: 0 !important;
+            position: static !important; max-height: 52vh !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .salonbul-chat { max-height: 44vh !important; }
+        }
       `}</style>
     </div>
   );
@@ -444,16 +451,6 @@ function SalonCard({ salon: s }: { salon: Salon }) {
           <div style={{ fontSize: 12, color: "#64748b", display: "flex", gap: 4 }}>
             <span>📍</span>
             <span>{[s.address, s.city].filter(Boolean).join(", ")}</span>
-          </div>
-        )}
-
-        {s.aboutText && (
-          <div style={{
-            fontSize: 12, color: "#94a3b8", lineHeight: 1.5,
-            display: "-webkit-box", WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical", overflow: "hidden",
-          }}>
-            {s.aboutText}
           </div>
         )}
 

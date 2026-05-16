@@ -22,4 +22,8 @@ public class Appointment
     public Guid?  PosTransactionId { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;
+    public string? GcalEventId        { get; set; }
+    public string? GcalStylistEventId { get; set; }
+    public DateTime? Reminder24hSentAt { get; set; }
+    public DateTime? Reminder1hSentAt  { get; set; }
 }

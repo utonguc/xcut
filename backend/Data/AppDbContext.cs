@@ -43,7 +43,9 @@ public class AppDbContext : DbContext
     public DbSet<PlatformAnnouncement>     PlatformAnnouncements     => Set<PlatformAnnouncement>();
     public DbSet<PlatformAnnouncementRead> PlatformAnnouncementReads => Set<PlatformAnnouncementRead>();
     public DbSet<SupportTicket>    SupportTickets    => Set<SupportTicket>();
+    public DbSet<SupportMessage>   SupportMessages   => Set<SupportMessage>();
     public DbSet<SupportTicketReply> SupportTicketReplies => Set<SupportTicketReply>();
+    public DbSet<Announcement>     Announcements     => Set<Announcement>();
     public DbSet<PosTransaction>     PosTransactions     => Set<PosTransaction>();
     public DbSet<PosTransactionItem> PosTransactionItems => Set<PosTransactionItem>();
     public DbSet<BankAccount>        BankAccounts        => Set<BankAccount>();
@@ -54,6 +56,18 @@ public class AppDbContext : DbContext
     public DbSet<UserPermissionGroup> UserPermissionGroups => Set<UserPermissionGroup>();
     public DbSet<StylistAttendance>     StylistAttendances     => Set<StylistAttendance>();
     public DbSet<PersonelLeaveRequest>  PersonelLeaveRequests  => Set<PersonelLeaveRequest>();
+    public DbSet<LeaveBalance>          LeaveBalances          => Set<LeaveBalance>();
+    public DbSet<KioskCode>             KioskCodes             => Set<KioskCode>();
+    public DbSet<KioskPlaylist>         KioskPlaylists         => Set<KioskPlaylist>();
+    public DbSet<KioskSlide>            KioskSlides            => Set<KioskSlide>();
+    public DbSet<KioskMedia>            KioskMediaItems        => Set<KioskMedia>();
+    public DbSet<KioskPairingRequest>   KioskPairingRequests   => Set<KioskPairingRequest>();
+    public DbSet<WaitlistEntry>         WaitlistEntries        => Set<WaitlistEntry>();
+    public DbSet<CustomerPhoto>         CustomerPhotos         => Set<CustomerPhoto>();
+    public DbSet<GoogleCalendarToken>   GoogleCalendarTokens   => Set<GoogleCalendarToken>();
+    public DbSet<StylistService>        StylistServices        => Set<StylistService>();
+    public DbSet<PasswordResetToken>    PasswordResetTokens    => Set<PasswordResetToken>();
+    public DbSet<UserSalonAccess>       UserSalonAccesses      => Set<UserSalonAccess>();
 
     protected override void OnModelCreating(ModelBuilder m)
     {
@@ -148,6 +162,10 @@ public class AppDbContext : DbContext
                 .WithMany(x => x.Services)
                 .HasForeignKey(x => x.SalonId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.ServiceCategory)
+                .WithMany()
+                .HasForeignKey(x => x.CategoryId)
+                .OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => x.SalonId);
             e.HasIndex(x => new { x.SalonId, x.Category });
         });
@@ -236,7 +254,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.TaxAmount).HasColumnType("numeric(18,2)");
             e.Property(x => x.Total).HasColumnType("numeric(18,2)");
             e.HasOne(x => x.Customer).WithMany()
-                .HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
+                .HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
             e.HasOne(x => x.Stylist).WithMany()
                 .HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => x.SalonId);
@@ -353,6 +371,15 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Salon).WithMany()
                 .HasForeignKey(x => x.SalonId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SalonId, x.Status });
+        });
+
+        m.Entity<LeaveBalance>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.Stylist).WithMany()
+                .HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.StylistId, x.Year }).IsUnique();
+            e.HasIndex(x => x.SalonId);
         });
 
         // ── AppointmentRequest ────────────────────────────────────────────────
@@ -496,13 +523,23 @@ public class AppDbContext : DbContext
         m.Entity<SupportTicket>(e =>
         {
             e.HasKey(x => x.Id);
-            e.Property(x => x.Subject).HasMaxLength(300).IsRequired();
+            e.Property(x => x.Subject).HasMaxLength(500).IsRequired();
             e.Property(x => x.SalonName).HasMaxLength(200).IsRequired();
-            e.Property(x => x.Status).HasMaxLength(20).IsRequired().HasDefaultValue("Open");
+            e.Property(x => x.UserName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(50).IsRequired().HasDefaultValue("Open");
+            e.HasMany(x => x.Messages).WithOne(x => x.Ticket)
+                .HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.Replies).WithOne(x => x.Ticket)
                 .HasForeignKey(x => x.TicketId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.SalonId);
             e.HasIndex(x => x.Status);
+        });
+
+        m.Entity<SupportMessage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AuthorName).HasMaxLength(200).IsRequired();
+            e.HasIndex(x => x.TicketId);
         });
 
         m.Entity<SupportTicketReply>(e =>
@@ -510,6 +547,21 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.AuthorName).HasMaxLength(200).IsRequired();
             e.HasIndex(x => x.TicketId);
+        });
+
+        // ── Announcements ─────────────────────────────────────────────────────
+        m.Entity<Announcement>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Type).HasMaxLength(50).IsRequired().HasDefaultValue("info");
+            e.Property(x => x.ExcludedSalonIds).HasDefaultValue("[]");
+            e.Property(x => x.RecurrenceType).HasMaxLength(50);
+            e.Property(x => x.RecurrenceDays).HasMaxLength(100);
+            e.Property(x => x.RecurrenceStartTime).HasMaxLength(10);
+            e.Property(x => x.RecurrenceEndTime).HasMaxLength(10);
+            e.HasIndex(x => x.IsPublished);
+            e.HasIndex(x => x.Priority);
         });
 
         // ── StockItem ─────────────────────────────────────────────────────────
@@ -641,6 +693,96 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Group).WithMany(g => g.UserGroups)
                 .HasForeignKey(x => x.PermissionGroupId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── WaitlistEntry ─────────────────────────────────────────────────────
+        m.Entity<WaitlistEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.SalonId);
+            e.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("Waiting");
+            e.Property(x => x.ServiceName).HasMaxLength(200);
+            e.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Stylist).WithMany().HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ── CustomerPhoto ──────────────────────────────────────────────────────
+        m.Entity<CustomerPhoto>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CustomerId);
+            e.Property(x => x.PhotoUrl).HasMaxLength(500).IsRequired();
+            e.Property(x => x.Type).HasMaxLength(20).HasDefaultValue("After");
+            e.Property(x => x.ServiceName).HasMaxLength(200);
+            e.HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── KioskCode ─────────────────────────────────────────────────────────
+        m.Entity<KioskCode>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Code).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => new { x.SalonId, x.Code }).IsUnique();
+            e.Property(x => x.Label).HasMaxLength(100);
+            e.HasOne(x => x.Salon).WithMany().HasForeignKey(x => x.SalonId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Playlist).WithMany().HasForeignKey(x => x.PlaylistId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ── KioskPlaylist / KioskSlide ────────────────────────────────────────
+        m.Entity<KioskPlaylist>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasMany(x => x.Slides).WithOne().HasForeignKey(x => x.PlaylistId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.SalonId);
+        });
+
+        m.Entity<KioskSlide>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.PlaylistId);
+        });
+
+        // ── KioskPairingRequest ───────────────────────────────────────────────
+        m.Entity<KioskPairingRequest>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.PairingCode).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => x.PairingCode).IsUnique();
+        });
+
+        // ── StylistService ────────────────────────────────────────────────────
+        m.Entity<StylistService>(e =>
+        {
+            e.HasKey(x => new { x.StylistId, x.ServiceId });
+            e.HasOne(x => x.Stylist).WithMany()
+                .HasForeignKey(x => x.StylistId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Service).WithMany()
+                .HasForeignKey(x => x.ServiceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.StylistId);
+        });
+
+        // ── UserSalonAccess ───────────────────────────────────────────────────
+        m.Entity<UserSalonAccess>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.SalonId }).IsUnique();
+            e.HasOne(x => x.User).WithMany()
+                .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Salon).WithMany()
+                .HasForeignKey(x => x.SalonId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.UserId);
+        });
+
+        // ── GoogleCalendarToken ───────────────────────────────────────────────
+        m.Entity<GoogleCalendarToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AccessToken).IsRequired();
+            e.Property(x => x.CalendarId).HasMaxLength(200).IsRequired();
+            e.Property(x => x.CalendarName).HasMaxLength(200);
+            e.Property(x => x.ConnectedEmail).HasMaxLength(200);
+            e.HasIndex(x => x.SalonId);
+            e.HasIndex(x => new { x.SalonId, x.UserId });
         });
     }
 }

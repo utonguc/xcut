@@ -18,11 +18,10 @@ public class PersonelController : ControllerBase
     private readonly AppDbContext _db;
     public PersonelController(AppDbContext db) { _db = db; }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Task<Guid?> GetSalonIdAsync()
     {
-        var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     private Guid? GetCurrentUserId()
@@ -82,6 +81,74 @@ public class PersonelController : ControllerBase
             DedupeKey   = dedupeKey,
         });
         await _db.SaveChangesAsync();
+    }
+
+    // ── Staff Roster ──────────────────────────────────────────────────────────
+
+    // GET /api/Personel/staff-roster
+    // Returns all active Stylists + auto-creates Stylist records for Users with
+    // staff roles who don't yet have one, so puantaj covers everyone.
+    [HttpGet("staff-roster")]
+    public async Task<IActionResult> GetStaffRoster()
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly, selfStylistId) = await GetSelfContextAsync();
+
+        var stylistsQ = _db.Stylists.Where(s => s.SalonId == salonId.Value && s.IsActive);
+        if (isSelfOnly && selfStylistId.HasValue)
+            stylistsQ = stylistsQ.Where(s => s.Id == selfStylistId.Value);
+
+        var stylists = await stylistsQ.OrderBy(s => s.FullName).ToListAsync();
+
+        if (!isSelfOnly)
+        {
+            var staffRoles = new[] { "Calfa", "Resepsiyon", "Kasiyer", "CRM", "Muhasebe" };
+            var staffUsers = await _db.Users
+                .Include(u => u.Role)
+                .Where(u => u.SalonId == salonId.Value && staffRoles.Contains(u.Role!.Name))
+                .ToListAsync();
+
+            var existingNames  = stylists.Select(s => s.FullName.Trim().ToLower()).ToHashSet();
+            var existingEmails = stylists.Where(s => s.Email != null)
+                                         .Select(s => s.Email!.Trim().ToLower()).ToHashSet();
+            var added = false;
+
+            foreach (var user in staffUsers)
+            {
+                var nameLow  = user.FullName.Trim().ToLower();
+                var emailLow = user.Email?.Trim().ToLower();
+                if (existingNames.Contains(nameLow)) continue;
+                if (emailLow != null && existingEmails.Contains(emailLow)) continue;
+
+                var newStylist = new Stylist
+                {
+                    SalonId  = salonId.Value,
+                    FullName = user.FullName,
+                    Email    = user.Email,
+                    IsActive = true,
+                    PayType  = "fixed_monthly",
+                };
+                _db.Stylists.Add(newStylist);
+                stylists.Add(newStylist);
+                existingNames.Add(nameLow);
+                if (emailLow != null) existingEmails.Add(emailLow);
+                added = true;
+            }
+
+            if (added) await _db.SaveChangesAsync();
+            stylists.Sort((a, b) => string.Compare(a.FullName, b.FullName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Ok(stylists.Select(s => new
+        {
+            id             = s.Id,
+            fullName       = s.FullName,
+            payType        = s.PayType,
+            fixedSalary    = s.FixedSalary,
+            commissionRate = s.CommissionRate,
+        }));
     }
 
     // ── Weekly Off Days ───────────────────────────────────────────────────────
@@ -516,6 +583,144 @@ public class PersonelController : ControllerBase
 
         return Ok(result);
     }
+
+    // ── Leave Balance ─────────────────────────────────────────────────────────
+
+    // GET /api/Personel/leave-balance?year=
+    [HttpGet("leave-balance")]
+    public async Task<IActionResult> GetLeaveBalance([FromQuery] int? year = null)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var y    = year ?? DateTime.UtcNow.Year;
+        var from = new DateTime(y, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var to   = new DateTime(y + 1, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var (isSelfOnly, selfStylistId) = await GetSelfContextAsync();
+
+        var stylistsQ = _db.Stylists.Where(s => s.SalonId == salonId.Value && s.IsActive);
+        if (isSelfOnly && selfStylistId.HasValue)
+            stylistsQ = stylistsQ.Where(s => s.Id == selfStylistId.Value);
+
+        var stylists  = await stylistsQ.OrderBy(s => s.FullName).ToListAsync();
+        var balances  = await _db.LeaveBalances.Where(b => b.SalonId == salonId.Value && b.Year == y).ToListAsync();
+        var annLeaves = await _db.StylistLeaves
+            .Where(l => l.Stylist!.SalonId == salonId.Value && l.LeaveType == "YillikIzin"
+                     && l.StartAtUtc >= from && l.StartAtUtc < to)
+            .ToListAsync();
+
+        var result = stylists.Select(s =>
+        {
+            var bal      = balances.FirstOrDefault(b => b.StylistId == s.Id);
+            int entitled = bal?.EntitledDays ?? 14;
+            int used     = annLeaves.Where(l => l.StylistId == s.Id)
+                .Sum(l =>
+                {
+                    var start = DateOnly.FromDateTime(l.StartAtUtc);
+                    var end   = DateOnly.FromDateTime(l.EndAtUtc);
+                    return end.DayNumber - start.DayNumber + 1;
+                });
+            return new
+            {
+                stylistId     = s.Id,
+                stylistName   = s.FullName,
+                year          = y,
+                entitledDays  = entitled,
+                usedDays      = used,
+                remainingDays = Math.Max(0, entitled - used),
+            };
+        });
+
+        return Ok(result);
+    }
+
+    // PUT /api/Personel/leave-balance/{stylistId}
+    [HttpPut("leave-balance/{stylistId:guid}")]
+    public async Task<IActionResult> SetLeaveBalance(Guid stylistId, [FromBody] SetLeaveBalanceRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly, _) = await GetSelfContextAsync();
+        if (isSelfOnly) return Forbid();
+
+        var stylist = await _db.Stylists.FirstOrDefaultAsync(s => s.Id == stylistId && s.SalonId == salonId.Value);
+        if (stylist is null) return NotFound();
+
+        int y = req.Year ?? DateTime.UtcNow.Year;
+        var existing = await _db.LeaveBalances.FirstOrDefaultAsync(b => b.StylistId == stylistId && b.Year == y);
+
+        if (existing is null)
+        {
+            _db.LeaveBalances.Add(new LeaveBalance
+            {
+                SalonId      = salonId.Value,
+                StylistId    = stylistId,
+                Year         = y,
+                EntitledDays = req.EntitledDays,
+            });
+        }
+        else
+        {
+            existing.EntitledDays = req.EntitledDays;
+            existing.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok();
+    }
+
+    // POST /api/Personel/attendance/bulk
+    [HttpPost("attendance/bulk")]
+    public async Task<IActionResult> BulkAttendance([FromBody] BulkAttendanceRequest req)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var (isSelfOnly, _) = await GetSelfContextAsync();
+        if (isSelfOnly) return Forbid();
+
+        if (!DateOnly.TryParse(req.Date, out var date)) return BadRequest(new { message = "Geçersiz tarih." });
+
+        var allIds = await _db.Stylists
+            .Where(s => s.SalonId == salonId.Value && s.IsActive)
+            .Select(s => s.Id)
+            .ToListAsync();
+
+        var targets = req.StylistIds is { Count: > 0 } ? req.StylistIds : allIds;
+
+        var existing = await _db.StylistAttendances
+            .Where(a => a.SalonId == salonId.Value && a.Date == date && targets.Contains(a.StylistId))
+            .ToListAsync();
+
+        int count = 0;
+        foreach (var sid in targets)
+        {
+            var ex = existing.FirstOrDefault(a => a.StylistId == sid);
+            if (ex is null)
+            {
+                _db.StylistAttendances.Add(new StylistAttendance
+                {
+                    SalonId   = salonId.Value,
+                    StylistId = sid,
+                    Date      = date,
+                    Status    = req.Status,
+                    IsHalfDay = req.IsHalfDay,
+                });
+                count++;
+            }
+            else if (req.Overwrite)
+            {
+                ex.Status    = req.Status;
+                ex.IsHalfDay = req.IsHalfDay;
+                count++;
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { count });
+    }
 }
 
 public class UpsertAttendanceRequest
@@ -527,4 +732,19 @@ public class UpsertAttendanceRequest
     public string? CheckIn   { get; set; }
     public string? CheckOut  { get; set; }
     public string? Note      { get; set; }
+}
+
+public class SetLeaveBalanceRequest
+{
+    public int  EntitledDays { get; set; } = 14;
+    public int? Year         { get; set; }
+}
+
+public class BulkAttendanceRequest
+{
+    public string      Date       { get; set; } = string.Empty;
+    public string      Status     { get; set; } = "present";
+    public bool        IsHalfDay  { get; set; }
+    public bool        Overwrite  { get; set; } = false;
+    public List<Guid>? StylistIds { get; set; }
 }

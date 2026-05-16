@@ -4,6 +4,7 @@ using System.Security.Claims;
 using XCut.Api.Data;
 using XCut.Api.DTOs;
 using XCut.Api.Models;
+using XCut.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,19 +16,35 @@ namespace XCut.Api.Controllers;
 [Authorize]
 public class AppointmentsController : ControllerBase
 {
-    private readonly AppDbContext _db;
+    private readonly AppDbContext           _db;
+    private readonly IAuditService          _audit;
+    private readonly KioskEventBroadcaster  _kioskBroadcaster;
+    private readonly IWhatsAppService       _wa;
+    private readonly IGoogleCalendarService _gcal;
     private static readonly TimeSpan ConflictBuffer = TimeSpan.FromMinutes(5);
 
     private static readonly HashSet<string> ValidStatuses =
         new() { "Scheduled", "InProgress", "Late", "Completed", "Cancelled", "NoShow" };
 
-    public AppointmentsController(AppDbContext db) => _db = db;
+    public AppointmentsController(AppDbContext db, IAuditService audit, KioskEventBroadcaster kioskBroadcaster, IWhatsAppService wa, IGoogleCalendarService gcal)
+    {
+        _db               = db;
+        _audit            = audit;
+        _kioskBroadcaster = kioskBroadcaster;
+        _wa               = wa;
+        _gcal             = gcal;
+    }
 
-    private async Task<Guid?> GetSalonIdAsync()
+    private Guid? GetUserId()
     {
         var sub = User.FindFirstValue(JwtRegisteredClaimNames.Sub) ?? User.FindFirstValue("sub");
-        if (!Guid.TryParse(sub, out var userId)) return null;
-        return await _db.Users.Where(x => x.Id == userId).Select(x => (Guid?)x.SalonId).FirstOrDefaultAsync();
+        return Guid.TryParse(sub, out var id) ? id : null;
+    }
+
+    private Task<Guid?> GetSalonIdAsync()
+    {
+        var claim = User.FindFirstValue("salonId");
+        return Task.FromResult(Guid.TryParse(claim, out var id) ? id : (Guid?)null);
     }
 
     // GET api/appointments?start=&end=&stylistId=&customerId=&status=
@@ -136,6 +153,21 @@ public class AppointmentsController : ControllerBase
 
         _db.Appointments.Add(appointment);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Appointment", appointment.Id.ToString(), "Create",
+            $"Randevu oluşturuldu: {appointment.ServiceName} — {appointment.StartAtUtc:dd.MM.yyyy HH:mm}");
+
+        // Push to Google Calendar (salon + stylist personal)
+        var cName = await _db.Customers.Where(x => x.Id == request.CustomerId)
+            .Select(x => x.FirstName + " " + x.LastName).FirstOrDefaultAsync() ?? "";
+        var sName = await _db.Stylists.Where(x => x.Id == request.StylistId)
+            .Select(x => x.FullName).FirstOrDefaultAsync() ?? "";
+        var gcalId       = await _gcal.PushEventAsync(salonId.Value, appointment, cName, sName);
+        var stylistCalId = await _gcal.PushEventForStylistAsync(salonId.Value, appointment.StylistId, appointment, cName, sName);
+        if (gcalId       != null) appointment.GcalEventId        = gcalId;
+        if (stylistCalId != null) appointment.GcalStylistEventId = stylistCalId;
+        if (gcalId != null || stylistCalId != null) await _db.SaveChangesAsync();
+        _ = _gcal.PushEventForManagersAsync(salonId.Value, appointment, cName, sName);
+
         return Ok(appointment.Id);
     }
 
@@ -168,6 +200,27 @@ public class AppointmentsController : ControllerBase
         appointment.UpdatedAtUtc = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+
+        // Sync to Google Calendar (salon + stylist personal)
+        var cName = await _db.Customers.Where(x => x.Id == appointment.CustomerId)
+            .Select(x => x.FirstName + " " + x.LastName).FirstOrDefaultAsync() ?? "";
+        var sName = await _db.Stylists.Where(x => x.Id == appointment.StylistId)
+            .Select(x => x.FullName).FirstOrDefaultAsync() ?? "";
+        if (!string.IsNullOrEmpty(appointment.GcalEventId))
+            _ = _gcal.UpdateEventAsync(salonId.Value, appointment.GcalEventId, appointment, cName, sName);
+        else
+        {
+            var gcalId = await _gcal.PushEventAsync(salonId.Value, appointment, cName, sName);
+            if (gcalId != null) { appointment.GcalEventId = gcalId; await _db.SaveChangesAsync(); }
+        }
+        if (!string.IsNullOrEmpty(appointment.GcalStylistEventId))
+            _ = _gcal.UpdateEventForStylistAsync(salonId.Value, appointment.StylistId, appointment.GcalStylistEventId, appointment, cName, sName);
+        else
+        {
+            var stylistCalId = await _gcal.PushEventForStylistAsync(salonId.Value, appointment.StylistId, appointment, cName, sName);
+            if (stylistCalId != null) { appointment.GcalStylistEventId = stylistCalId; await _db.SaveChangesAsync(); }
+        }
+
         return Ok(appointment.Id);
     }
 
@@ -182,12 +235,40 @@ public class AppointmentsController : ControllerBase
             return BadRequest(new { message = $"Geçersiz status. Geçerli değerler: {string.Join(", ", ValidStatuses)}" });
 
         var appointment = await _db.Appointments
+            .Include(a => a.Customer)
+            .Include(a => a.Stylist)
             .FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (appointment is null) return NotFound("Randevu bulunamadı.");
 
         appointment.Status       = request.Status;
         appointment.UpdatedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Appointment", id.ToString(), "Update",
+            $"Randevu durumu güncellendi: {appointment.ServiceName} → {appointment.Status}");
+
+        var customerName = appointment.Customer != null
+            ? $"{appointment.Customer.FirstName} {appointment.Customer.LastName}"
+            : "Müşteri";
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            id           = appointment.Id,
+            status       = appointment.Status,
+            customerName,
+            stylistName  = appointment.Stylist?.FullName,
+            serviceName  = appointment.ServiceName,
+            startAtUtc   = appointment.StartAtUtc,
+        });
+        _kioskBroadcaster.Broadcast(salonId.Value, "queue_update", payload);
+
+        // When cancelled → notify first waitlist entry + delete calendar events
+        if (request.Status == "Cancelled")
+        {
+            _ = WaitlistNotifier.NotifyFirstAsync(_db, _wa, salonId.Value, appointment.StylistId, appointment.ServiceName);
+            if (!string.IsNullOrEmpty(appointment.GcalEventId))
+                _ = _gcal.DeleteEventAsync(salonId.Value, appointment.GcalEventId);
+            if (!string.IsNullOrEmpty(appointment.GcalStylistEventId))
+                _ = _gcal.DeleteEventForStylistAsync(salonId.Value, appointment.StylistId, appointment.GcalStylistEventId);
+        }
 
         return Ok(new { id = appointment.Id, status = appointment.Status });
     }
@@ -240,8 +321,15 @@ public class AppointmentsController : ControllerBase
             .FirstOrDefaultAsync(x => x.Id == id && x.SalonId == salonId.Value);
         if (appointment is null) return NotFound("Randevu bulunamadı.");
 
+        var info = $"{appointment.ServiceName} — {appointment.StartAtUtc:dd.MM.yyyy HH:mm}";
+        if (!string.IsNullOrEmpty(appointment.GcalEventId))
+            _ = _gcal.DeleteEventAsync(salonId.Value, appointment.GcalEventId);
+        if (!string.IsNullOrEmpty(appointment.GcalStylistEventId))
+            _ = _gcal.DeleteEventForStylistAsync(salonId.Value, appointment.StylistId, appointment.GcalStylistEventId);
         _db.Appointments.Remove(appointment);
         await _db.SaveChangesAsync();
+        _ = _audit.LogAsync(salonId.Value, GetUserId(), "Appointment", id.ToString(), "Delete",
+            $"Randevu silindi: {info}");
         return NoContent();
     }
 
