@@ -48,7 +48,10 @@ Hizmet adı, fiyat, süre, kategori ve açıklama. Hizmet grupları (saç, cilt,
 Ürün ve malzeme takibi. Kritik stok seviyesi belirlenir, altına düşünce uyarı verilir. Stok giriş/çıkış kaydı tutulur.
 
 ### Kasa
-Günlük kasa açma/kapama. Ödeme alma (nakit, kart, havale). Hizmet ve ürün satışı. Ödeme sonrası müşteriye mail adisyon (makbuz) gönderilebilir. İndirim uygulanabilir.
+Günlük kasa açma/kapama. Ödeme alma (nakit, kart, havale). Hizmet, ürün ve paket satışı (Hizmetler / Stok / Paketler sekmeleri). Ödeme sonrası müşteriye mail adisyon (makbuz) gönderilebilir. İndirim uygulanabilir.
+
+### Paketler & Kampanyalar
+Hizmet ve ürünleri bir araya getirerek kampanya paketi oluşturulur. Paket fiyatı serbestçe belirlenir; sistem orijinal fiyatı ve indirim yüzdesini otomatik gösterir. "Süreli Kampanya" seçeneğiyle başlangıç-bitiş tarihi atanır. Aktif paketler kasada "🎁 Paketler" sekmesinde görünür ve adisyona tek tıkla eklenir. Paket pasife alındığında kasada görünmez. Menü: Büyüme → Paketler.
 
 ### Finans
 Gelir ve gider kayıtları. Fatura oluşturma ve PDF indirme. Tarih aralığı bazlı raporlama. Kategori bazlı gider takibi.
@@ -63,7 +66,10 @@ Salon performans raporu, stilist bazlı analiz. Aylık/haftalık randevu ve geli
 Salon için tam özelleştirilebilir public web sitesi. AI ile içerik oluşturma (salon tanıtımı, hizmet açıklamaları). Online randevu formu. Domain bağlama. SEO başlıkları, meta açıklamalar ayarlanabilir.
 
 ### Bekleme Listesi
-Randevu bekleyen müşterilerin listesi. İstenen stilist ve hizmet görülür.
+İki farklı bekleme profili vardır:
+**Esnek Bekleme:** Müşteri herhangi bir saatte gelebilir. Uygun saat açıldığında "Saat Teklifi Gönder" butonu ile müşteriye e-posta gönderilir. E-postadaki "Kabul Et" / "Reddet" butonlarına tıklanınca randevu otomatik oluşur veya müşteri pasif kaydedilir. Teklif 24 saat geçerlidir.
+**Sabit Saat Bekleme:** Müşteri belirli bir saat aralığını belirtir. O saatte iptal oluşunca "Onayla" butonu tıklanır; randevu stilistle birlikte otomatik oluşturulur.
+Her iki profilde de stilist önceden atanmalıdır. Reddedilen müşteriler "pasif" olarak kayıt altına alınır. Tamamlananlar ayrı sekmede görülür.
 
 ### Sıra Yönetimi
 TV/ekranda gösterilebilen dijital sıra ekranı. Müşteriler kiosk ile sıraya eklenebilir.
