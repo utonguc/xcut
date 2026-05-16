@@ -93,7 +93,7 @@ public class PosController : ControllerBase
             _       => 0,
         };
 
-        // Açık kasa oturumunu otomatik bağla
+        // Açık kasa oturumu zorunlu — yoksa işlem yapılamaz
         var openSessionId = req.CashSessionId;
         if (openSessionId is null)
         {
@@ -103,6 +103,8 @@ public class PosController : ControllerBase
                 .Select(s => (Guid?)s.Id)
                 .FirstOrDefaultAsync();
         }
+        if (openSessionId is null)
+            return BadRequest(new { message = "Kasa oturumu açık değil. Ödeme almak için önce oturum açın." });
 
         // Look up customer name from CustomerId if provided
         string? customerName = req.CustomerName?.Trim();
@@ -471,6 +473,49 @@ public class PosController : ControllerBase
                 }
             }
         });
+    }
+
+    // GET api/Pos/sessions?page=1&pageSize=20
+    [HttpGet("sessions")]
+    public async Task<IActionResult> GetSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        var salonId = await GetSalonIdAsync();
+        if (salonId is null) return Unauthorized();
+
+        var sessions = await _db.CashSessions
+            .Where(s => s.SalonId == salonId.Value)
+            .OrderByDescending(s => s.OpenedAtUtc)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync();
+
+        var total = await _db.CashSessions.CountAsync(s => s.SalonId == salonId.Value);
+
+        var result = new List<object>();
+        foreach (var s in sessions)
+        {
+            var txSum = await _db.PosTransactions
+                .Where(t => t.CashSessionId == s.Id && t.Status == "completed")
+                .GroupBy(_ => 1)
+                .Select(g => new { cash = g.Sum(t => t.CashAmount), card = g.Sum(t => t.CardAmount), bank = g.Sum(t => t.BankAmount), revenue = g.Sum(t => t.Total), count = g.Count() })
+                .FirstOrDefaultAsync();
+            var expSum = await _db.CashExpenses.Where(e => e.CashSessionId == s.Id).SumAsync(e => e.Amount);
+            result.Add(new
+            {
+                s.Id, s.OpenedAtUtc, s.ClosedAtUtc, s.Status,
+                s.OpeningBalance, s.ClosingBalance, s.Notes,
+                totalRevenue  = txSum?.revenue  ?? 0,
+                totalCash     = txSum?.cash     ?? 0,
+                totalCard     = txSum?.card     ?? 0,
+                totalBank     = txSum?.bank     ?? 0,
+                totalExpenses = expSum,
+                txCount       = txSum?.count    ?? 0,
+                netCash       = s.OpeningBalance + (txSum?.cash ?? 0) - expSum,
+                difference    = s.ClosingBalance.HasValue
+                    ? s.ClosingBalance.Value - (s.OpeningBalance + (txSum?.cash ?? 0) - expSum)
+                    : (decimal?)null,
+            });
+        }
+        return Ok(new { total, page, pageSize, items = result });
     }
 
     // GET api/Pos/session/current

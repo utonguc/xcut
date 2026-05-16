@@ -54,6 +54,17 @@ type TodayStats = {
   totalRevenue: number; totalCash: number; totalCard: number; totalBank: number; txCount: number;
   session: { id: string; openedAtUtc: string; openingBalance: number } | null;
 };
+type SessionDetail = {
+  id: string; openedAtUtc: string; openingBalance: number; status: string;
+  totalRevenue: number; totalCash: number; totalCard: number; totalBank: number;
+  totalExpenses: number; netCash: number;
+};
+type SessionHistoryItem = {
+  id: string; openedAtUtc: string; closedAtUtc?: string; status: string;
+  openingBalance: number; closingBalance?: number; notes?: string;
+  totalRevenue: number; totalCash: number; totalCard: number; totalBank: number;
+  totalExpenses: number; netCash: number; txCount: number; difference?: number;
+};
 
 type HistoryItem = {
   id: string; customerName: string | null; total: number; paymentMethod: string;
@@ -87,16 +98,17 @@ function adisyonTotal(a: Adisyon): number {
 export default function KasaPage() {
   const { toast, confirm } = useToast();
   const isMobile = useIsMobile();
-  const [tab,          setTab]          = useState<"kasa"|"gecmis"|"masraf"|"ay-sonu">("kasa");
-  const [stylists,     setStylists]     = useState<Stylist[]>([]);
-  const [services,     setServices]     = useState<Service[]>([]);
-  const [stockItems,   setStockItems]   = useState<StockItem[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [customers,    setCustomers]    = useState<Customer[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [todayStats,   setTodayStats]   = useState<TodayStats | null>(null);
-  const [openingBal,   setOpeningBal]   = useState("0");
-  const [sessionOp,    setSessionOp]    = useState<"open"|"close"|null>(null);
+  const [tab,            setTab]            = useState<"kasa"|"gecmis"|"masraf"|"ay-sonu">("kasa");
+  const [stylists,       setStylists]       = useState<Stylist[]>([]);
+  const [services,       setServices]       = useState<Service[]>([]);
+  const [stockItems,     setStockItems]     = useState<StockItem[]>([]);
+  const [bankAccounts,   setBankAccounts]   = useState<BankAccount[]>([]);
+  const [customers,      setCustomers]      = useState<Customer[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [todayStats,     setTodayStats]     = useState<TodayStats | null>(null);
+  const [openingBal,     setOpeningBal]     = useState("0");
+  const [sessionOp,      setSessionOp]      = useState<"open"|null>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
 
   const loadToday = useCallback(async () => {
     const r = await apiFetch("/Pos/today");
@@ -127,15 +139,8 @@ export default function KasaPage() {
     else { const d = await r.json().catch(() => ({})); toast.error(d.message ?? "Oturum açılamadı."); }
   };
 
-  const closeSession = async () => {
-    if (!todayStats?.session) return;
-    const ok = await confirm({ message: "Kasa oturumunu kapatmak istiyor musunuz?", danger: false });
-    if (!ok) return;
-    const r = await apiFetch(`/Pos/session/${todayStats.session.id}/close`, {
-      method: "POST", body: JSON.stringify({ closingBalance: null, notes: null }),
-    });
-    if (r.ok) { toast.success("Kasa oturumu kapatıldı."); setSessionOp(null); loadToday(); }
-    else toast.error("Oturum kapatılamadı.");
+  const closeSession = () => {
+    if (todayStats?.session) setShowCloseModal(true);
   };
 
   const session = todayStats?.session ?? null;
@@ -158,29 +163,43 @@ export default function KasaPage() {
         ))}
 
         {/* Session card */}
-        <div style={{ background: session ? "#f0fdf4" : "#fef9f0", borderRadius: 12, padding: "14px 16px", border: `1px solid ${session ? "#bbf7d0" : "#fed7aa"}` }}>
-          <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 4 }}>Kasa Oturumu</div>
-          <div style={{ fontSize: 13, fontWeight: 800, color: session ? "#15803d" : "#d97706", marginBottom: 6 }}>
-            {session
-              ? `Açık · ${new Date(session.openedAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
-              : "Kapalı"}
-          </div>
-          {sessionOp === "open" ? (
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              <input type="number" placeholder="Açılış ₺" value={openingBal}
-                onChange={e => setOpeningBal(e.target.value)}
-                style={{ width: 76, padding: "4px 7px", borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12 }} />
-              <button onClick={openSession} style={btnSm("#16a34a")}>Aç</button>
-              <button onClick={() => setSessionOp(null)} style={btnSm("#94a3b8")}>×</button>
+        <div style={{ background: session ? "#f0fdf4" : "#fff7ed", borderRadius: 12, padding: "14px 16px", border: `1px solid ${session ? "#bbf7d0" : "#fed7aa"}`, gridColumn: "span 2" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700, marginBottom: 2 }}>KASA OTURUMU</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: session ? "#15803d" : "#d97706" }}>
+                {session
+                  ? `Açık · ${new Date(session.openedAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })} · Açılış: ₺${fmt(session.openingBalance)}`
+                  : "⚠ Kapalı — ödeme almak için oturum açın"}
+              </div>
+              {session && todayStats && (
+                <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 11, color: "#374151", flexWrap: "wrap" }}>
+                  <span>Ciro <b style={{ color: "#7c3aed" }}>₺{fmt(todayStats.totalRevenue)}</b></span>
+                  <span>Nakit <b style={{ color: "#16a34a" }}>₺{fmt(todayStats.totalCash)}</b></span>
+                  <span>Kart <b style={{ color: "#2563eb" }}>₺{fmt(todayStats.totalCard)}</b></span>
+                  <span>İşlem <b>{todayStats.txCount}</b></span>
+                </div>
+              )}
             </div>
-          ) : (
-            <button onClick={() => session ? closeSession() : setSessionOp("open")} style={{
-              fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer",
-              background: session ? "#fee2e2" : "#dcfce7", color: session ? "#dc2626" : "#16a34a",
-            }}>
-              {session ? "Oturumu Kapat" : "Oturum Aç"}
-            </button>
-          )}
+            <div>
+              {sessionOp === "open" ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <input type="number" placeholder="Açılış ₺" value={openingBal}
+                    onChange={e => setOpeningBal(e.target.value)}
+                    style={{ width: 80, padding: "6px 8px", borderRadius: 7, border: "1px solid #e2e8f0", fontSize: 13 }} />
+                  <button onClick={openSession} style={btnSm("#16a34a")}>Oturumu Aç</button>
+                  <button onClick={() => setSessionOp(null)} style={btnSm("#94a3b8")}>İptal</button>
+                </div>
+              ) : (
+                <button onClick={() => session ? closeSession() : setSessionOp("open")} style={{
+                  fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer",
+                  background: session ? "#fee2e2" : "#dcfce7", color: session ? "#dc2626" : "#16a34a",
+                }}>
+                  {session ? "🔒 Oturumu Kapat" : "🔓 Oturum Aç"}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -200,10 +219,18 @@ export default function KasaPage() {
       {loading && tab === "kasa" && (
         <div style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>Yükleniyor...</div>
       )}
-      {!loading && tab === "kasa"    && <AdisyonTab stylists={stylists} services={services} stockItems={stockItems} bankAccounts={bankAccounts} customers={customers} onCheckout={loadToday} isMobile={isMobile} />}
+      {!loading && tab === "kasa"    && <AdisyonTab stylists={stylists} services={services} stockItems={stockItems} bankAccounts={bankAccounts} customers={customers} session={session} onCheckout={loadToday} isMobile={isMobile} />}
       {           tab === "gecmis"   && <HistoryTab />}
       {           tab === "masraf"   && <MasrafPanel bankAccounts={bankAccounts} />}
       {           tab === "ay-sonu"  && <AySonuPanel stylists={stylists} />}
+
+      {showCloseModal && session && (
+        <SessionCloseModal
+          sessionId={session.id}
+          onClose={() => setShowCloseModal(false)}
+          onClosed={() => { setShowCloseModal(false); loadToday(); toast.success("Kasa oturumu kapatıldı."); }}
+        />
+      )}
     </AppShell>
   );
 }
@@ -211,9 +238,10 @@ export default function KasaPage() {
 /* ════════════════════════════════════════════════════════════════════
    ADİSYON TAB
    ════════════════════════════════════════════════════════════════════ */
-function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers, onCheckout, isMobile }: {
+function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers, session, onCheckout, isMobile }: {
   stylists: Stylist[]; services: Service[]; stockItems: StockItem[]; bankAccounts: BankAccount[];
-  customers: Customer[]; onCheckout: () => void; isMobile?: boolean;
+  customers: Customer[]; session: { id: string; openedAtUtc: string; openingBalance: number } | null;
+  onCheckout: () => void; isMobile?: boolean;
 }) {
   const { toast, confirm } = useToast();
   const [adisyons,      setAdisyons]      = useState<Adisyon[]>(() => loadAdisyons());
@@ -325,6 +353,7 @@ function AdisyonTab({ stylists, services, stockItems, bankAccounts, customers, o
         services={services}
         stockItems={stockItems}
         bankAccounts={bankAccounts}
+        session={session}
         onBack={() => setOpenId(null)}
         onUpdate={fn => updateAdisyon(openAdisyon.id, fn)}
         onCheckoutDone={() => { closeAdisyon(openAdisyon.id); onCheckout(); }}
@@ -613,12 +642,13 @@ function CustomerPicker({ customers, selected, onSelect }: {
 /* ════════════════════════════════════════════════════════════════════
    ADİSYON DETAIL
    ════════════════════════════════════════════════════════════════════ */
-function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, onBack, onUpdate, onCheckoutDone, onDelete, isMobile }: {
+function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, session, onBack, onUpdate, onCheckoutDone, onDelete, isMobile }: {
   adisyon:        Adisyon;
   stylist:        Stylist;
   services:       Service[];
   stockItems:     StockItem[];
   bankAccounts:   BankAccount[];
+  session:        { id: string; openedAtUtc: string; openingBalance: number } | null;
   onBack:         () => void;
   onUpdate:       (fn: (prev: Adisyon) => Adisyon) => void;
   onCheckoutDone: () => void;
@@ -1106,15 +1136,20 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
           </div>
 
           {/* Payment section */}
+          {!session && (
+            <div style={{ padding: "12px 14px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fed7aa", fontSize: 13, fontWeight: 600, color: "#92400e", textAlign: "center" }}>
+              ⚠ Kasa oturumu kapalı — ödeme alamazsınız
+            </div>
+          )}
           {!showPay ? (
             <button
-              onClick={() => { if (adisyon.items.length > 0) { setPayMethod("cash"); setCashAmt(0); setCardAmt(0); setBankId(""); setShowPay(true); } }}
-              disabled={adisyon.items.length === 0}
+              onClick={() => { if (adisyon.items.length > 0 && session) { setPayMethod("cash"); setCashAmt(0); setCardAmt(0); setBankId(""); setShowPay(true); } }}
+              disabled={adisyon.items.length === 0 || !session}
               style={{
                 padding: "13px", borderRadius: 12, border: "none",
-                background: adisyon.items.length === 0 ? "#e9d5ff" : "linear-gradient(135deg, #7c3aed, #a21caf)",
-                color: adisyon.items.length === 0 ? "#a78bfa" : "#fff",
-                fontWeight: 900, fontSize: 15, cursor: adisyon.items.length === 0 ? "not-allowed" : "pointer",
+                background: adisyon.items.length === 0 || !session ? "#e9d5ff" : "linear-gradient(135deg, #7c3aed, #a21caf)",
+                color: adisyon.items.length === 0 || !session ? "#a78bfa" : "#fff",
+                fontWeight: 900, fontSize: 15, cursor: adisyon.items.length === 0 || !session ? "not-allowed" : "pointer",
               }}
             >
               💳 Ödeme Al · ₺{fmt(total)}
@@ -1581,6 +1616,187 @@ function AySonuPanel({ stylists }: { stylists: { id: string; fullName: string }[
         </>
       )}
     </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SESSION CLOSE MODAL
+   ════════════════════════════════════════════════════════════════════ */
+function SessionCloseModal({ sessionId, onClose, onClosed }: {
+  sessionId: string;
+  onClose: () => void;
+  onClosed: () => void;
+}) {
+  const { toast } = useToast();
+  const [detail,   setDetail]   = useState<SessionDetail | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [counting, setCounting] = useState("");
+  const [notes,    setNotes]    = useState("");
+  const [closing,  setClosing]  = useState(false);
+  const [zReport,  setZReport]  = useState<(SessionHistoryItem & { openedAtUtc: string; closedAtUtc: string }) | null>(null);
+
+  useEffect(() => {
+    apiFetch("/Pos/session/current")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setDetail(d); })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const expected = detail ? detail.openingBalance + detail.totalCash - detail.totalExpenses : 0;
+  const actual   = parseFloat(counting) || 0;
+  const diff     = counting !== "" ? actual - expected : null;
+
+  const close = async () => {
+    if (!detail) return;
+    setClosing(true);
+    const r = await apiFetch(`/Pos/session/${detail.id}/close`, {
+      method: "POST",
+      body: JSON.stringify({ closingBalance: counting !== "" ? actual : null, notes: notes || null }),
+    });
+    setClosing(false);
+    if (r.ok) {
+      setZReport(await r.json());
+    } else {
+      const d = await r.json().catch(() => ({}));
+      toast.error(d.message ?? "Oturum kapatılamadı.");
+    }
+  };
+
+  const statRow = (label: string, value: string, color?: string) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #f1f5f9", fontSize: 13 }}>
+      <span style={{ color: "#667085" }}>{label}</span>
+      <span style={{ fontWeight: 700, color: color ?? "var(--text,#101828)" }}>{value}</span>
+    </div>
+  );
+
+  /* ── Z-Report ── */
+  if (zReport) {
+    const openedAt  = new Date(zReport.openedAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    const closedAt  = new Date(zReport.closedAtUtc).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    const zDiff     = zReport.difference ?? null;
+    return (
+      <>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 700 }} />
+        <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "24px 12px", zIndex: 701 }}>
+          <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: "min(480px,100%)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)", marginBottom: 24 }}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>📊</div>
+              <div style={{ fontWeight: 900, fontSize: 18, color: "#101828" }}>Z-Raporu</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{openedAt} – {closedAt}</div>
+            </div>
+            <div style={{ background: "#f8fafc", borderRadius: 12, padding: "8px 14px", marginBottom: 16 }}>
+              {statRow("Açılış Bakiyesi",  `₺${fmt(zReport.openingBalance)}`, "#374151")}
+              {statRow("Toplam Ciro",      `₺${fmt(zReport.totalRevenue)}`, "#7c3aed")}
+              {statRow("Nakit Tahsilat",   `₺${fmt(zReport.totalCash)}`, "#16a34a")}
+              {statRow("Kart Tahsilat",    `₺${fmt(zReport.totalCard)}`, "#2563eb")}
+              {zReport.totalBank > 0 && statRow("Havale Tahsilat", `₺${fmt(zReport.totalBank)}`, "#0891b2")}
+              {zReport.totalExpenses > 0 && statRow("Toplam Masraf", `−₺${fmt(zReport.totalExpenses)}`, "#dc2626")}
+              {statRow("Beklenen Nakit",   `₺${fmt(zReport.netCash)}`, "#059669")}
+              {zReport.closingBalance != null && statRow("Sayılan Nakit", `₺${fmt(zReport.closingBalance)}`, "#374151")}
+              {zDiff !== null && statRow(
+                zDiff >= 0 ? "Kasa Fazlası" : "Kasa Açığı",
+                `${zDiff >= 0 ? "+" : ""}₺${fmt(Math.abs(zDiff))}`,
+                zDiff >= 0 ? "#059669" : "#dc2626"
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: 16 }}>
+              {zReport.txCount} işlem tamamlandı
+            </div>
+            <button onClick={onClosed} style={{ width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: "#7c3aed", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+              Tamam
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 700 }} onClick={onClose} />
+      <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "24px 12px", zIndex: 701 }}>
+        <div style={{ background: "#fff", borderRadius: 20, padding: 28, width: "min(480px,100%)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)", marginBottom: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div style={{ fontWeight: 900, fontSize: 17, color: "#101828" }}>🔒 Kasa Oturumunu Kapat</div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: "#94a3b8" }}>×</button>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: "center", padding: 32, color: "#94a3b8" }}>Yükleniyor...</div>
+          ) : !detail ? (
+            <div style={{ textAlign: "center", padding: 32, color: "#dc2626" }}>Oturum bulunamadı.</div>
+          ) : (
+            <>
+              {/* Session summary */}
+              <div style={{ background: "#f8fafc", borderRadius: 12, padding: "8px 14px", marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 4 }}>OTURUM ÖZETİ</div>
+                {statRow("Açılış Bakiyesi",  `₺${fmt(detail.openingBalance)}`)}
+                {statRow("Toplam Ciro",      `₺${fmt(detail.totalRevenue)}`, "#7c3aed")}
+                {statRow("Nakit Tahsilat",   `₺${fmt(detail.totalCash)}`, "#16a34a")}
+                {statRow("Kart Tahsilat",    `₺${fmt(detail.totalCard)}`, "#2563eb")}
+                {detail.totalBank > 0 && statRow("Havale", `₺${fmt(detail.totalBank)}`, "#0891b2")}
+                {detail.totalExpenses > 0 && statRow("Toplam Masraf", `−₺${fmt(detail.totalExpenses)}`, "#dc2626")}
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", fontSize: 14, borderTop: "2px solid #e2e8f0", marginTop: 4 }}>
+                  <span style={{ fontWeight: 700, color: "#374151" }}>Beklenen Nakit</span>
+                  <span style={{ fontWeight: 900, color: "#059669" }}>₺{fmt(expected)}</span>
+                </div>
+              </div>
+
+              {/* Cash count */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#344054", marginBottom: 6 }}>
+                  Kasa Sayımı (isteğe bağlı)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={counting}
+                  onChange={e => setCounting(e.target.value)}
+                  placeholder={`Beklenen: ₺${fmt(expected)}`}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14, boxSizing: "border-box", outline: "none" }}
+                />
+              </div>
+
+              {/* Difference indicator */}
+              {diff !== null && (
+                <div style={{
+                  padding: "10px 14px", borderRadius: 10, marginBottom: 14,
+                  background: Math.abs(diff) < 0.01 ? "#f0fdf4" : diff > 0 ? "#eff6ff" : "#fef3f2",
+                  border: `1px solid ${Math.abs(diff) < 0.01 ? "#bbf7d0" : diff > 0 ? "#bfdbfe" : "#fecaca"}`,
+                  color: Math.abs(diff) < 0.01 ? "#15803d" : diff > 0 ? "#1d4ed8" : "#b42318",
+                  fontWeight: 700, fontSize: 14, display: "flex", justifyContent: "space-between",
+                }}>
+                  <span>{Math.abs(diff) < 0.01 ? "✓ Kasa dengede" : diff > 0 ? "↑ Kasa fazlası" : "↓ Kasa açığı"}</span>
+                  <span>{diff >= 0 ? "+" : ""}₺{fmt(diff)}</span>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#344054", marginBottom: 6 }}>Not</label>
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Varsa not ekleyin..."
+                  rows={2}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 13, boxSizing: "border-box", resize: "none", outline: "none", fontFamily: "inherit" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={onClose} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f8fafc", fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#64748b" }}>
+                  Vazgeç
+                </button>
+                <button onClick={close} disabled={closing} style={{ flex: 2, padding: "11px 0", borderRadius: 10, border: "none", background: closing ? "#94a3b8" : "#dc2626", color: "#fff", fontWeight: 700, fontSize: 14, cursor: closing ? "not-allowed" : "pointer" }}>
+                  {closing ? "Kapatılıyor..." : "🔒 Oturumu Kapat"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
