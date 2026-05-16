@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -9,7 +9,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 /* ── Types ───────────────────────────────────────────────────────────── */
 type Stylist     = { id: string; fullName: string; specialty?: string };
 type Service     = { id: string; name: string; category: string; price: number };
-type StockItem   = { id: string; name: string; category?: string; salePrice: number; staffBonusPct: number; quantity: number; unit?: string };
+type StockItem   = { id: string; name: string; category?: string; barcode?: string; salePrice: number; staffBonusPct: number; quantity: number; unit?: string };
 type BankAccount = { id: string; bankName: string; accountName: string; isActive: boolean };
 type Customer    = { id: string; fullName: string; phone?: string };
 
@@ -626,16 +626,19 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
   isMobile?:      boolean;
 }) {
   const { toast } = useToast();
-  const [search,      setSearch]      = useState("");
-  const [catalogTab,  setCatalogTab]  = useState<"services"|"stock"|"packages">("services");
-  const [packages,    setPackages]    = useState<Array<{ id:string; name:string; totalPrice:number; isActive:boolean; validTo?:string; items:Array<{itemName:string}> }>>([]);
-  const [mobilePanel, setMobilePanel] = useState<"catalog"|"cart">("catalog");
-  const [showPay,     setShowPay]     = useState(false);
-  const [payMethod,  setPayMethod]  = useState<"cash"|"card"|"mixed"|"bank">("cash");
-  const [cashAmt,    setCashAmt]    = useState(0);
-  const [cardAmt,    setCardAmt]    = useState(0);
-  const [bankId,     setBankId]     = useState("");
-  const [processing, setProcessing] = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [catalogTab,   setCatalogTab]   = useState<"services"|"stock"|"packages">("services");
+  const [packages,     setPackages]     = useState<Array<{ id:string; name:string; totalPrice:number; isActive:boolean; validTo?:string; items:Array<{itemName:string}> }>>([]);
+  const [mobilePanel,  setMobilePanel]  = useState<"catalog"|"cart">("catalog");
+  const [showPay,      setShowPay]      = useState(false);
+  const [payMethod,   setPayMethod]   = useState<"cash"|"card"|"mixed"|"bank">("cash");
+  const [cashAmt,     setCashAmt]     = useState(0);
+  const [cardAmt,     setCardAmt]     = useState(0);
+  const [bankId,      setBankId]      = useState("");
+  const [processing,  setProcessing]  = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const [barcodeFlash, setBarcodeFlash] = useState<"ok"|"err"|null>(null);
+  const barcodeRef = useRef<HTMLInputElement>(null);
   const [receiptModal, setReceiptModal] = useState<{
     total: number; discountAmount: number; payMethodLabel: string;
     customerEmail: string; salonName: string; sending: boolean;
@@ -671,6 +674,40 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
       ...prev,
       items: [...prev.items, { id: uid(), stockItemId: item.id, name: item.name, unitPrice: item.salePrice, quantity: 1, staffBonusPct: item.staffBonusPct }],
     }));
+  };
+
+  const handleBarcodeSubmit = (raw: string) => {
+    const code = raw.trim();
+    if (!code) return;
+    setBarcodeInput("");
+
+    const found = stockItems.find(si => si.barcode && si.barcode.toLowerCase() === code.toLowerCase());
+    if (!found) {
+      setBarcodeFlash("err");
+      setTimeout(() => setBarcodeFlash(null), 700);
+      toast.error(`Barkod bulunamadı: ${code}`);
+      return;
+    }
+
+    if (found.quantity <= 0) {
+      toast.warning(`${found.name} — stok tükenmiş, yine de eklendi.`);
+    }
+
+    const existing = adisyon.items.find(i => i.stockItemId === found.id);
+    if (existing) {
+      onUpdate(prev => ({
+        ...prev,
+        items: prev.items.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i),
+      }));
+      toast.success(`${found.name} ×${existing.quantity + 1}`);
+    } else {
+      addStockItem(found);
+      toast.success(`${found.name} adisyona eklendi`);
+    }
+
+    setBarcodeFlash("ok");
+    setTimeout(() => setBarcodeFlash(null), 500);
+    barcodeRef.current?.focus();
   };
 
   const addCustom = () => {
@@ -853,6 +890,38 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
 
         {/* Catalog */}
         <div style={{ display: isMobile && mobilePanel === "cart" ? "none" : "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
+
+          {/* Barcode / QR scanner input */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 15, pointerEvents: "none", userSelect: "none" }}>
+                📷
+              </span>
+              <input
+                ref={barcodeRef}
+                type="text"
+                value={barcodeInput}
+                onChange={e => setBarcodeInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleBarcodeSubmit(barcodeInput); }}
+                placeholder="Barkod / QR okut veya yaz, Enter'a bas..."
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  padding: "9px 14px 9px 34px", borderRadius: 10, fontSize: 13, outline: "none",
+                  border: `2px solid ${barcodeFlash === "ok" ? "#16a34a" : barcodeFlash === "err" ? "#dc2626" : "#d1d5db"}`,
+                  background: barcodeFlash === "ok" ? "#f0fdf4" : barcodeFlash === "err" ? "#fef2f2" : "#fff",
+                  transition: "border-color 0.15s, background 0.15s",
+                }}
+              />
+            </div>
+            <button
+              onClick={() => handleBarcodeSubmit(barcodeInput)}
+              disabled={!barcodeInput.trim()}
+              style={{ padding: "9px 14px", borderRadius: 10, border: "none", background: barcodeInput.trim() ? "#7c3aed" : "#e9d5ff", color: "#fff", fontWeight: 700, fontSize: 13, cursor: barcodeInput.trim() ? "pointer" : "default", flexShrink: 0 }}
+            >
+              Ekle
+            </button>
+          </div>
+
           <div style={{ display: "flex", gap: 0, borderRadius: 10, border: "1px solid #e9d5ff", overflow: "hidden", flexShrink: 0 }}>
             {(["services","stock","packages"] as const).map((t, i) => (
               <button key={t} onClick={() => setCatalogTab(t)} style={{
@@ -869,7 +938,7 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
 
           {catalogTab !== "packages" && (
             <input
-              placeholder={catalogTab === "services" ? "🔍 Hizmet ara..." : "🔍 Ürün ara..."}
+              placeholder={catalogTab === "services" ? "🔍 Hizmet ara..." : "🔍 Ürün ara veya barkod gir..."}
               value={search} onChange={e => setSearch(e.target.value)}
               style={{ padding: "9px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14, outline: "none" }}
             />
@@ -921,7 +990,8 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
                 {(() => {
                   const filteredStock = stockItems.filter(si =>
                     si.name.toLowerCase().includes(search.toLowerCase()) ||
-                    (si.category ?? "").toLowerCase().includes(search.toLowerCase())
+                    (si.category ?? "").toLowerCase().includes(search.toLowerCase()) ||
+                    (si.barcode ?? "").toLowerCase().includes(search.toLowerCase())
                   );
                   const stockCats = Array.from(new Set(filteredStock.map(si => si.category ?? "Genel")));
                   if (filteredStock.length === 0) return <div style={{ color: "#94a3b8", fontSize: 14, textAlign: "center", paddingTop: 40 }}>Stok ürünü bulunamadı</div>;
@@ -944,6 +1014,11 @@ function AdisyonDetail({ adisyon, stylist, services, stockItems, bankAccounts, o
                               {si.quantity <= 0 ? "Stok yok" : `Stok: ${si.quantity}${si.unit ? ` ${si.unit}` : ""}`}
                               {si.staffBonusPct > 0 && ` · %${si.staffBonusPct} prim`}
                             </div>
+                            {si.barcode && (
+                              <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 1, fontFamily: "monospace" }}>
+                                {si.barcode}
+                              </div>
+                            )}
                           </button>
                         ))}
                       </div>
